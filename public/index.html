@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>leelainfra.in — WhatsApp Sender</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+          <path d="M16 3C9.1 3 3.5 8.4 3.5 15c0 2.4.7 4.6 1.9 6.5L4 29l7.8-1.3c1.3.4 2.7.6 4.2.6 6.9 0 12.5-5.4 12.5-12s-5.6-12.5-12.5-12.5z" fill="currentColor"/>
+        </svg>
+      </span>
+      <div>
+        <h1>leelainfra.in</h1>
+        <p class="subtitle">WhatsApp Business Sender</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="template">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h8M8 9h2"/></svg>
+        <span>Template</span>
+      </button>
+      <button class="tab-btn" data-tab="text">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Text</span>
+      </button>
+      <button class="tab-btn" data-tab="media">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        <span>Media</span>
+      </button>
+    </div>
+
+    <section id="tab-template" class="tab-panel active">
+      <p class="hint">Naye ya cold numbers ko pehli baar message bhejne ke liye — Meta Business Manager par approved template zaroori hai.</p>
+      <form id="templateForm">
+        <label>Template Name
+          <input type="text" name="templateName" placeholder="e.g. order_update" required />
+        </label>
+        <label>Language Code
+          <input type="text" name="language" placeholder="en_US" value="en_US" />
+        </label>
+        <label>Template Variables (agar template me {{1}}, {{2}} hai to yaha comma-separated values)
+          <input type="text" name="variables" placeholder="e.g. Govind,Order#1234" />
+        </label>
+        <label>Recipients (ek number per line, ya comma se alag — country code ke saath, jaise 9198xxxxxxx)
+          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
+        </label>
+        <p class="recipient-info warn" id="templateRecipientInfo">0 number(s) ko bheja jaayega</p>
+        <label class="file-label">Ya CSV file upload karo (phone numbers column)
+          <input type="file" id="templateCsv" accept=".csv,.txt" />
+        </label>
+        <p class="csv-feedback" id="templateCsvFeedback"></p>
+        <div class="form-actions">
+          <button type="submit">Send Template Message</button>
+          <button type="button" class="btn-secondary" data-reset="templateForm">Clear</button>
+        </div>
+      </form>
+      <div id="templateResult" class="result"></div>
+    </section>
+
+    <section id="tab-text" class="tab-panel">
+      <p class="hint">Sirf un numbers ko jinhone last 24 ghante me aapke WhatsApp business number par message kiya ho, warna WhatsApp ye message deliver nahi karega.</p>
+      <form id="textForm">
+        <label>Message
+          <textarea name="message" rows="5" maxlength="4096" placeholder="Apna message yaha likho..." required></textarea>
+        </label>
+        <p class="char-count" id="textCharCount">0 / 4096 characters</p>
+        <label>Recipients (ek number per line, ya comma se alag)
+          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
+        </label>
+        <p class="recipient-info warn" id="textRecipientInfo">0 number(s) ko bheja jaayega</p>
+        <label class="file-label">Ya CSV file upload karo (phone numbers column)
+          <input type="file" id="textCsv" accept=".csv,.txt" />
+        </label>
+        <p class="csv-feedback" id="textCsvFeedback"></p>
+        <div class="form-actions">
+          <button type="submit">Send Message</button>
+          <button type="button" class="btn-secondary" data-reset="textForm">Clear</button>
+        </div>
+      </form>
+      <div id="textResult" class="result"></div>
+    </section>
+
+    <section id="tab-media" class="tab-panel">
+      <p class="hint">Image, document ya video bhejne ke liye — file upload karo ya public URL do. File upload sirf tab kaam karega jab app deploy ho (public URL ke bina Meta ke servers file fetch nahi kar payenge). Sirf active 24-hour session wale numbers ko deliver hoga.</p>
+      <form id="mediaForm">
+        <label>Media Type
+          <select name="mediaType">
+            <option value="image">Image</option>
+            <option value="document">Document</option>
+            <option value="video">Video</option>
+            <option value="audio">Audio</option>
+          </select>
+        </label>
+        <label>File Upload
+          <input type="file" id="mediaFile" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" />
+        </label>
+        <p class="csv-feedback" id="mediaFileFeedback"></p>
+        <label>...ya seedha Media URL paste karo
+          <input type="text" name="mediaUrl" id="mediaUrlInput" placeholder="https://example.com/file.jpg" />
+        </label>
+        <button type="button" id="clearMediaBtn" class="btn-link" hidden>✕ File hataao, URL khud likhna hai</button>
+        <label>Caption (optional)
+          <input type="text" name="caption" placeholder="Message ke saath caption" />
+        </label>
+        <label>Recipients (ek number per line, ya comma se alag)
+          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
+        </label>
+        <p class="recipient-info warn" id="mediaRecipientInfo">0 number(s) ko bheja jaayega</p>
+        <label class="file-label">Ya CSV file upload karo (phone numbers column)
+          <input type="file" id="mediaCsv" accept=".csv,.txt" />
+        </label>
+        <p class="csv-feedback" id="mediaCsvFeedback"></p>
+        <div class="form-actions">
+          <button type="submit">Send Media Message</button>
+          <button type="button" class="btn-secondary" data-reset="mediaForm">Clear</button>
+        </div>
+      </form>
+      <div id="mediaResult" class="result"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
