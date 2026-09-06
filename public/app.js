@@ -5,8 +5,75 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    if (btn.dataset.tab === 'inbox') loadInbox();
   });
 });
+
+// Inbox: shows both sent messages and customer replies, newest first.
+let inboxPollTimer = null;
+
+function formatInboxTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return sameDay ? time : `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
+function renderInbox(messages) {
+  const listEl = document.getElementById('inboxList');
+  if (!listEl) return;
+
+  if (!messages.length) {
+    listEl.innerHTML = '<p class="inbox-empty">Abhi tak koi message nahi hai.</p>';
+    return;
+  }
+
+  // Render oldest-first within the list so it reads top-to-bottom like a chat.
+  const ordered = [...messages].reverse();
+  listEl.innerHTML = ordered
+    .map((m) => {
+      const failed = m.direction === 'sent' && m.ok === false;
+      const label = m.direction === 'sent' ? 'Sent →' : `← ${m.name || m.number}`;
+      const failTag = failed ? ' <span class="fail-tag">✕ failed</span>' : '';
+      return `
+        <div class="inbox-msg ${m.direction}${failed ? ' failed' : ''}">
+          <div class="inbox-meta"><span>${label} · ${m.number}</span><span>${formatInboxTime(m.timestamp)}${failTag}</span></div>
+          <div class="inbox-body">${escapeHtml(m.body || '')}</div>
+        </div>
+      `;
+    })
+    .join('');
+  listEl.scrollTop = listEl.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function loadInbox() {
+  const statusEl = document.getElementById('inboxStatus');
+  try {
+    const res = await fetch('/api/messages');
+    const data = await res.json();
+    if (data.warning && statusEl) statusEl.textContent = data.warning;
+    else if (statusEl) statusEl.textContent = `${data.messages.length} message(s)`;
+    renderInbox(data.messages || []);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+  }
+}
+
+document.getElementById('refreshInboxBtn')?.addEventListener('click', loadInbox);
+
+// Poll every 10s so new replies show up without a manual refresh, but only
+// while the Inbox tab is actually visible.
+setInterval(() => {
+  const inboxTab = document.getElementById('tab-inbox');
+  if (inboxTab && inboxTab.classList.contains('active')) loadInbox();
+}, 10000);
 
 // Parses recipient text the same way the server does (newline/comma separated,
 // digits only, 10+ chars), plus dedupes and reports invalid/duplicate counts

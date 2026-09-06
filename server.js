@@ -1,23 +1,61 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
+const { Redis } = require('@upstash/redis');
+const { put } = require('@vercel/blob');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const redis =
+  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN
+    ? new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN })
+    : null;
 
+const MESSAGES_KEY = 'wa:messages';
+const MAX_STORED_MESSAGES = 500;
+
+// Stores one inbox entry (sent or received) in Redis. No-ops silently if
+// Redis isn't configured, so the app still works without an Inbox.
+async function logMessage(entry) {
+  if (!redis) return;
+  const record = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    ...entry,
+  };
+  await redis.lpush(MESSAGES_KEY, JSON.stringify(record));
+  await redis.ltrim(MESSAGES_KEY, 0, MAX_STORED_MESSAGES - 1);
+}
+
+async function getMessages(limit = 300) {
+  if (!redis) return [];
+  const raw = await redis.lrange(MESSAGES_KEY, 0, limit - 1);
+  return raw.map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
+}
+
+// Turns an outgoing Graph API request body into a short human-readable
+// summary for the Inbox (e.g. "Template: hello_world" or the raw text).
+function describeSentBody(body) {
+  if (body.type === 'template') {
+    const params = body.template.components?.[0]?.parameters || [];
+    const vars = params.map((p) => p.text).join(', ');
+    return `Template: ${body.template.name}${vars ? ` (${vars})` : ''}`;
+  }
+  if (body.type === 'text') return body.text.body;
+  if (['image', 'document', 'video', 'audio'].includes(body.type)) {
+    const media = body[body.type];
+    return media.caption || media.filename || `[${body.type}]`;
+  }
+  return `[${body.type}]`;
+}
+
+// Vercel's filesystem is read-only at runtime, so uploads go straight to
+// Vercel Blob (public storage) instead of disk — Meta needs a public URL
+// to fetch the media from anyway.
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-      const safeName = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, safeName);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 16 * 1024 * 1024 }, // WhatsApp media limits are ~16MB for most types
 });
 
@@ -75,8 +113,16 @@ async function sendWhatsAppMessage(body) {
 async function sendToMany(numbers, buildBody) {
   const results = [];
   for (const to of numbers) {
-    const result = await sendWhatsAppMessage(buildBody(to));
+    const body = buildBody(to);
+    const result = await sendWhatsAppMessage(body);
     results.push({ to, ...result });
+    await logMessage({
+      direction: 'sent',
+      number: to,
+      type: body.type,
+      body: describeSentBody(body),
+      ok: result.ok,
+    });
     await new Promise((r) => setTimeout(r, 300));
   }
   const failed = results.filter((r) => !r.ok);
@@ -140,15 +186,25 @@ app.post('/api/send-text', async (req, res) => {
   res.json(result);
 });
 
-// Upload a media file (image/document/video) and hand back a public URL for it.
-// NOTE: Meta's servers must be able to reach this URL to fetch the file,
-// so this only works once the app is deployed on a public URL (not on localhost).
-app.post('/api/upload-media', upload.single('file'), (req, res) => {
+// Upload a media file (image/document/video) to Vercel Blob and hand back
+// its public URL — Meta's servers fetch media from this URL when sending.
+app.post('/api/upload-media', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ ok: false, error: 'File nahi mili.' });
   }
-  const url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ ok: true, url, mimetype: req.file.mimetype });
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(500).json({ ok: false, error: 'Blob storage configured nahi hai (BLOB_READ_WRITE_TOKEN missing).' });
+  }
+  try {
+    const safeName = Date.now() + '-' + req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const blob = await put(`uploads/${safeName}`, req.file.buffer, {
+      access: 'public',
+      contentType: req.file.mimetype,
+    });
+    res.json({ ok: true, url: blob.url, mimetype: req.file.mimetype });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: `Upload failed: ${err.message}` });
+  }
 });
 
 function mediaTypeFromMime(mimetype) {
@@ -190,6 +246,57 @@ app.post('/api/send-media', async (req, res) => {
   }));
 
   res.json(result);
+});
+
+// Returns the stored Inbox log (sent + received messages), newest first.
+app.get('/api/messages', async (req, res) => {
+  if (!redis) {
+    return res.json({ ok: true, messages: [], warning: 'Inbox database configured nahi hai.' });
+  }
+  const messages = await getMessages(300);
+  res.json({ ok: true, messages });
+});
+
+// Meta calls this with a GET request once, to verify we own this endpoint.
+app.get('/api/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+    return res.status(200).send(challenge);
+  }
+  return res.sendStatus(403);
+});
+
+// Meta calls this with a POST request for every incoming message/status update.
+app.post('/api/webhook', async (req, res) => {
+  try {
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const messages = value?.messages || [];
+    const contacts = value?.contacts || [];
+
+    for (const msg of messages) {
+      const contact = contacts.find((c) => c.wa_id === msg.from);
+      let body;
+      if (msg.type === 'text') body = msg.text?.body || '';
+      else if (msg.type === 'button') body = msg.button?.text || '';
+      else if (msg.type === 'interactive') {
+        body = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || `[${msg.type}]`;
+      } else body = `[${msg.type}]`;
+
+      await logMessage({
+        direction: 'received',
+        number: msg.from,
+        name: contact?.profile?.name || '',
+        type: msg.type,
+        body,
+      });
+    }
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+  }
+  res.sendStatus(200);
 });
 
 app.listen(PORT, () => {

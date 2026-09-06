@@ -233,3 +233,73 @@ button[type="submit"]:hover:not(:disabled) { background: #1fbd5a; }
 
 .result.success { color: var(--wa-dark); font-weight: 600; }
 .result.error { color: var(--danger); }
+
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.inbox-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 30px 10px;
+}
+
+.inbox-msg {
+  max-width: 82%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+  font-size: 0.88rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.inbox-msg.sent {
+  align-self: flex-end;
+  background: #d9fdd3;
+  border-bottom-right-radius: 2px;
+}
+
+.inbox-msg.received {
+  align-self: flex-start;
+  background: var(--panel);
+  border-bottom-left-radius: 2px;
+}
+
+.inbox-msg .inbox-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 3px;
+  font-weight: 600;
+}
+
+.inbox-msg .inbox-body {
+  white-space: pre-wrap;
+}
+
+.inbox-msg.sent.failed {
+  background: #fdeaea;
+}
+
+.inbox-msg .inbox-meta .fail-tag {
+  color: var(--danger);
+}
