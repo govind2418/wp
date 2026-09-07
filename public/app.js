@@ -1066,15 +1066,11 @@ function renderThread(number) {
     // media with no real caption — don't show that as if it were text.
     const isPlaceholderBody = /^\[[a-z]+\]$/i.test(m.body || '');
     const showBodyText = m.body && !(hasMedia && isPlaceholderBody);
-    html += `
-      <div class="bubble-row ${m.direction}">
-        <div class="bubble ${m.direction} ${hasMedia ? 'has-media' : ''} ${failed ? 'failed' : ''}">
-          ${bubbleMediaHtml(m)}
-          ${showBodyText ? escapeHtml(m.body) : ''}
-          <div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div>
-        </div>
-      </div>
-    `;
+    const bubbleContent = [
+      bubbleMediaHtml(m),
+      showBodyText ? escapeHtml(m.body) : '',
+    ].filter(Boolean).join('');
+    html += `<div class="bubble-row ${m.direction}"><div class="bubble ${m.direction} ${hasMedia ? 'has-media' : ''} ${failed ? 'failed' : ''}">${bubbleContent}<div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div></div></div>`;
   }
   document.getElementById('threadBody').innerHTML = html;
   document.getElementById('threadBody').scrollTop = document.getElementById('threadBody').scrollHeight;
