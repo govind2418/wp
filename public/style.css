@@ -1034,12 +1034,56 @@ a { color: inherit; }
   border-bottom: 1px solid var(--border-soft);
 }
 .contact-row:last-child { border-bottom: none; }
+.contact-row.selected { background: var(--accent-50); }
 .contact-row-info { flex: 1; min-width: 0; }
 .contact-row-info strong { font-size: 13.5px; display: block; }
 .contact-row-info span { font-size: 12px; color: var(--ink-muted); }
 .contact-row-meta { text-align: right; flex-shrink: 0; }
 .contact-row-meta strong { font-size: 12px; display: block; }
 .contact-row-meta span { font-size: 11px; color: var(--ink-faint); }
+
+.contact-checkbox, .contacts-select-all input {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border);
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.contacts-select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.contacts-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.contacts-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--charcoal-900);
+  color: white;
+  padding: 8px 10px 8px 16px;
+  border-radius: var(--radius-pill);
+}
+.contacts-bulk-actions[hidden] { display: none; }
+.contacts-bulk-actions span { font-size: 12.5px; font-weight: 600; }
+.contacts-bulk-actions .btn-ghost { color: rgba(255,255,255,0.7); }
+.contacts-bulk-actions .btn-ghost:hover { background: rgba(255,255,255,0.1); color: white; }
 
 /* ============================================================
    Settings

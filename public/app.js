@@ -96,6 +96,7 @@ const state = {
   messages: [],
   templates: [],
   contacts: [],
+  selectedContacts: new Set(),
   config: null,
   currentView: 'dashboard',
   activeConversation: null,
@@ -905,21 +906,50 @@ function getMergedContacts() {
   return [...byNumber.values()].sort((a, b) => b.lastTimestamp - a.lastTimestamp);
 }
 
+const CONTACTS_RENDER_CAP = 200;
+
+function updateContactsBulkBar(currentList) {
+  const count = state.selectedContacts.size;
+  document.getElementById('contactsBulkActions').hidden = count === 0;
+  document.getElementById('contactsSelectedCount').textContent = `${count} selected`;
+  const selectAllCb = document.getElementById('contactsSelectAll');
+  selectAllCb.checked = currentList.length > 0 && currentList.every((c) => state.selectedContacts.has(c.number));
+  selectAllCb.indeterminate = !selectAllCb.checked && currentList.some((c) => state.selectedContacts.has(c.number));
+}
+
 function renderContacts(filter = '') {
   const table = document.getElementById('contactsTable');
-  let list = getMergedContacts();
+  const countText = document.getElementById('contactsCountText');
+  const fullList = getMergedContacts();
+  const totalCount = fullList.length;
+
+  let list = fullList;
   if (filter) {
     const q = filter.toLowerCase();
     list = list.filter((c) => c.number.includes(q) || (c.name || '').toLowerCase().includes(q));
   }
 
-  if (!list.length) {
+  const capped = !filter && list.length > CONTACTS_RENDER_CAP;
+  const rendered = capped ? list.slice(0, CONTACTS_RENDER_CAP) : list;
+
+  countText.textContent = filter
+    ? `${list.length} contact${list.length === 1 ? '' : 's'} matching "${filter}"`
+    : `${totalCount.toLocaleString('en-IN')} total contact${totalCount === 1 ? '' : 's'}${capped ? ` — showing ${CONTACTS_RENDER_CAP}, search to narrow down` : ''}`;
+
+  document.getElementById('contactsSelectAllLabel').textContent = filter
+    ? `Sab ${list.length} select karo`
+    : 'Sab select karo';
+
+  updateContactsBulkBar(list);
+
+  if (!rendered.length) {
     table.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi contact nahi</strong><span>CSV import karo ya message bhejo — yahan dikhne lagega</span></div>`;
     return;
   }
 
-  table.innerHTML = list.map((c) => `
-    <div class="contact-row">
+  table.innerHTML = rendered.map((c) => `
+    <div class="contact-row ${state.selectedContacts.has(c.number) ? 'selected' : ''}">
+      <input type="checkbox" class="contact-checkbox" data-number="${escapeHtml(c.number)}" ${state.selectedContacts.has(c.number) ? 'checked' : ''} />
       <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
       <div class="contact-row-info">
         <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
@@ -933,6 +963,15 @@ function renderContacts(filter = '') {
     </div>
   `).join('');
 
+  table.querySelectorAll('.contact-checkbox').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selectedContacts.add(cb.dataset.number);
+      else state.selectedContacts.delete(cb.dataset.number);
+      cb.closest('.contact-row').classList.toggle('selected', cb.checked);
+      updateContactsBulkBar(list);
+    });
+  });
+
   table.querySelectorAll('[data-send-to]').forEach((btn) => {
     btn.addEventListener('click', () => {
       resetWizard();
@@ -941,9 +980,29 @@ function renderContacts(filter = '') {
       goToView('send');
     });
   });
+
+  document.getElementById('contactsSelectAll').onchange = (e) => {
+    if (e.target.checked) list.forEach((c) => state.selectedContacts.add(c.number));
+    else list.forEach((c) => state.selectedContacts.delete(c.number));
+    renderContacts(filter);
+  };
 }
 
 document.getElementById('contactsSearchInput').addEventListener('input', (e) => renderContacts(e.target.value));
+
+document.getElementById('contactsBulkSendBtn').addEventListener('click', () => {
+  const numbers = [...state.selectedContacts];
+  if (!numbers.length) return;
+  resetWizard();
+  document.getElementById('sendNumbers').value = numbers.join('\n');
+  updateRecipientCount();
+  goToView('send');
+});
+
+document.getElementById('contactsClearSelectionBtn').addEventListener('click', () => {
+  state.selectedContacts.clear();
+  renderContacts(document.getElementById('contactsSearchInput').value);
+});
 
 // Accepts "number" or "name,number" / "number,name" per line — whichever
 // column looks like a phone number is used as the number, the rest as name.
