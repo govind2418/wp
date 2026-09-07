@@ -905,6 +905,11 @@ function renderConversationList(filter = '') {
 
 document.getElementById('convSearchInput').addEventListener('input', (e) => renderConversationList(e.target.value));
 
+document.getElementById('gateLogoutBtn')?.addEventListener('click', async () => {
+  await fetch('/api/gate/logout', { method: 'POST' }).catch(() => {});
+  window.location.href = '/login.html';
+});
+
 // Tap-to-open image lightbox, WhatsApp-style (documents already open via target="_blank" links).
 (function initMediaLightbox() {
   const lightbox = document.getElementById('mediaLightbox');

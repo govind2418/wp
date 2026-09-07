@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const fsPromises = require('fs/promises');
 const { spawn } = require('child_process');
 const multer = require('multer');
@@ -135,9 +136,102 @@ const GRAPH_API_VERSION = 'v25.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const WHATSAPP_API_URL = `${GRAPH_BASE}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
+// ---------------------------------------------------------------------------
+// Owner-only PIN gate. Everything except the login page itself, the assets
+// it needs, and Meta's own webhook/cron callbacks requires a valid session
+// cookie. Sessions are opaque random tokens looked up in Redis (no JWT/secret
+// management needed) so they can be revoked instantly by deleting the key.
+// ---------------------------------------------------------------------------
+// No hardcoded fallback: the PIN must only ever live in env vars, never in
+// source that gets committed to the (public) repo.
+const GATE_PIN = process.env.GATE_PIN;
+const GATE_COOKIE = 'leela_gate';
+const GATE_SESSION_TTL_SECONDS = 30 * 24 * 3600; // 30 days
+const GATE_MAX_FAILED_ATTEMPTS = 8;
+const GATE_LOCKOUT_SECONDS = 15 * 60;
+
+const GATE_PUBLIC_PATHS = new Set([
+  '/login.html',
+  '/privacy.html',
+  '/style.css',
+  '/leela-logo.png',
+  '/munim-ji-logo.png',
+  '/favicon-16.png',
+  '/favicon-32.png',
+  '/apple-touch-icon.png',
+]);
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  return Object.fromEntries(
+    header.split(';').map((pair) => {
+      const idx = pair.indexOf('=');
+      if (idx === -1) return [pair.trim(), ''];
+      return [pair.slice(0, idx).trim(), decodeURIComponent(pair.slice(idx + 1).trim())];
+    })
+  );
+}
+
+async function gateMiddleware(req, res, next) {
+  if (req.method === 'GET' && req.path === '/api/webhook') return next();
+  if (req.method === 'POST' && req.path === '/api/webhook') return next();
+  if (req.path === '/api/cron/cleanup-media') return next();
+  if (req.path === '/api/gate/login') return next();
+  if (GATE_PUBLIC_PATHS.has(req.path)) return next();
+
+  const token = parseCookies(req)[GATE_COOKIE];
+  const valid = token && redis ? await redis.get(`gate:session:${token}`) : false;
+  if (valid) return next();
+
+  if (req.path.startsWith('/api/')) return res.status(401).json({ ok: false, error: 'Login required' });
+  return res.redirect('/login.html');
+}
+
 // Default 100kb limit is too small for large CSV/vCard contact imports.
 app.use(express.json({ limit: '10mb' }));
+app.use(gateMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/api/gate/login', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const failKey = `gate:fail:${ip}`;
+
+  if (redis) {
+    const fails = Number((await redis.get(failKey)) || 0);
+    if (fails >= GATE_MAX_FAILED_ATTEMPTS) {
+      return res.status(429).json({ ok: false, error: 'Too many attempts. Try again in a few minutes.' });
+    }
+  }
+
+  const pin = String(req.body?.pin || '');
+  if (pin !== GATE_PIN) {
+    if (redis) {
+      await redis.incr(failKey);
+      await redis.expire(failKey, GATE_LOCKOUT_SECONDS);
+    }
+    return res.status(401).json({ ok: false, error: 'Wrong PIN' });
+  }
+
+  if (redis) await redis.del(failKey);
+
+  const token = crypto.randomBytes(24).toString('hex');
+  if (redis) await redis.set(`gate:session:${token}`, '1', { ex: GATE_SESSION_TTL_SECONDS });
+
+  const isProd = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+  res.setHeader(
+    'Set-Cookie',
+    `${GATE_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${GATE_SESSION_TTL_SECONDS}${isProd ? '; Secure' : ''}`
+  );
+  res.json({ ok: true });
+});
+
+app.post('/api/gate/logout', async (req, res) => {
+  const token = parseCookies(req)[GATE_COOKIE];
+  if (token && redis) await redis.del(`gate:session:${token}`);
+  res.setHeader('Set-Cookie', `${GATE_COOKIE}=; Path=/; HttpOnly; Max-Age=0`);
+  res.json({ ok: true });
+});
 
 function cleanNumber(raw) {
   return String(raw).replace(/[^\d]/g, '');
