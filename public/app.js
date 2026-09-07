@@ -89,6 +89,7 @@ const ICONS = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  forward: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 4 20 9 15 14"/><path d="M4 20v-4a4 4 0 0 1 4-4h12"/></svg>',
 };
 
 const EMOJI_LIST = [
@@ -207,6 +208,9 @@ const state = {
   templates: [],
   contacts: [],
   selectedContacts: new Set(),
+  selectedInboxNumbers: new Set(),
+  forwardMessage: null,
+  forwardSelected: new Set(),
   config: null,
   currentView: 'dashboard',
   activeConversation: null,
@@ -861,6 +865,23 @@ function openTemplateForm() {
 /* ============================================================
    Inbox
    ============================================================ */
+// Multi-select is only offered on the "Free window open" tab — that's the
+// one case where sending the same message to several people at once
+// (instead of one at a time) is actually the thing being asked for.
+function updateInboxBulkBar(currentList) {
+  const selectBar = document.getElementById('inboxSelectBar');
+  const isOpenFilter = state.inboxFilter === 'open';
+  selectBar.hidden = !isOpenFilter;
+  if (!isOpenFilter) return;
+
+  const count = state.selectedInboxNumbers.size;
+  document.getElementById('inboxBulkActions').hidden = count === 0;
+  document.getElementById('inboxSelectedCount').textContent = `${count} selected`;
+  const selectAllCb = document.getElementById('inboxSelectAll');
+  selectAllCb.checked = currentList.length > 0 && currentList.every((c) => state.selectedInboxNumbers.has(c.number));
+  selectAllCb.indeterminate = !selectAllCb.checked && currentList.some((c) => state.selectedInboxNumbers.has(c.number));
+}
+
 function renderConversationList(filter = '') {
   let conversations = getConversations().filter((c) => {
     if (!filter) return true;
@@ -870,6 +891,9 @@ function renderConversationList(filter = '') {
   if (state.inboxFilter === 'open') conversations = conversations.filter((c) => c.windowOpen);
 
   const listEl = document.getElementById('convList');
+  updateInboxBulkBar(conversations);
+  const showCheckboxes = state.inboxFilter === 'open';
+
   if (!conversations.length) {
     const msg = state.inboxFilter === 'open'
       ? { title: 'Koi free window open nahi', body: 'Jab customer message karega, 24 ghante ka free window yahan dikhega' }
@@ -879,6 +903,7 @@ function renderConversationList(filter = '') {
   }
   listEl.innerHTML = conversations.map((c) => `
     <div class="conv-item ${state.activeConversation === c.number ? 'active' : ''}" data-number="${escapeHtml(c.number)}">
+      ${showCheckboxes ? `<input type="checkbox" class="contact-checkbox conv-checkbox" data-number="${escapeHtml(c.number)}" ${state.selectedInboxNumbers.has(c.number) ? 'checked' : ''} />` : ''}
       <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
       <div class="conv-item-body">
         <div class="conv-item-top">
@@ -893,6 +918,15 @@ function renderConversationList(filter = '') {
     </div>
   `).join('');
 
+  listEl.querySelectorAll('.conv-checkbox').forEach((cb) => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selectedInboxNumbers.add(cb.dataset.number);
+      else state.selectedInboxNumbers.delete(cb.dataset.number);
+      updateInboxBulkBar(conversations);
+    });
+  });
+
   listEl.querySelectorAll('.conv-item').forEach((item) => {
     item.addEventListener('click', () => {
       state.activeConversation = item.dataset.number;
@@ -902,6 +936,32 @@ function renderConversationList(filter = '') {
     });
   });
 }
+
+document.getElementById('inboxSelectAll').addEventListener('change', (e) => {
+  const filter = document.getElementById('convSearchInput').value;
+  let conversations = getConversations().filter((c) => {
+    if (!filter) return true;
+    const q = filter.toLowerCase();
+    return c.number.includes(q) || (c.name || '').toLowerCase().includes(q);
+  }).filter((c) => c.windowOpen);
+  if (e.target.checked) conversations.forEach((c) => state.selectedInboxNumbers.add(c.number));
+  else conversations.forEach((c) => state.selectedInboxNumbers.delete(c.number));
+  renderConversationList(filter);
+});
+
+document.getElementById('inboxBulkSendBtn').addEventListener('click', () => {
+  const numbers = [...state.selectedInboxNumbers];
+  if (!numbers.length) return;
+  resetWizard();
+  document.getElementById('sendNumbers').value = numbers.join('\n');
+  updateRecipientCount();
+  goToView('send');
+});
+
+document.getElementById('inboxClearSelectionBtn').addEventListener('click', () => {
+  state.selectedInboxNumbers.clear();
+  renderConversationList(document.getElementById('convSearchInput').value);
+});
 
 document.getElementById('convSearchInput').addEventListener('input', (e) => renderConversationList(e.target.value));
 
@@ -940,9 +1000,126 @@ document.getElementById('gateLogoutBtn')?.addEventListener('click', async () => 
   });
 })();
 
+/* ============================================================
+   Forward message
+   ============================================================ */
+function renderForwardContactList(filter = '') {
+  const listEl = document.getElementById('forwardContactList');
+  let contacts = getMergedContacts();
+  if (filter) {
+    const q = filter.toLowerCase();
+    contacts = contacts.filter((c) => c.number.includes(q) || (c.name || '').toLowerCase().includes(q));
+  }
+  const capped = !filter && contacts.length > CONTACTS_RENDER_CAP;
+  const rendered = capped ? contacts.slice(0, CONTACTS_RENDER_CAP) : contacts;
+  if (!rendered.length) {
+    listEl.innerHTML = `<div class="empty-state" style="padding:24px 0;"><span>Koi contact nahi mila</span></div>`;
+  } else {
+    listEl.innerHTML = (capped ? `<p class="field-hint" style="padding:4px 8px 8px;">Showing ${CONTACTS_RENDER_CAP} of ${contacts.length} — search to narrow down</p>` : '') + rendered.map((c) => `
+      <div class="forward-contact-row ${state.forwardSelected.has(c.number) ? 'selected' : ''}" data-number="${escapeHtml(c.number)}">
+        <input type="checkbox" class="contact-checkbox" ${state.forwardSelected.has(c.number) ? 'checked' : ''} />
+        <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
+        <div class="forward-contact-row-info">
+          <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
+          <span>${escapeHtml(displayNumber(c.number))}</span>
+        </div>
+      </div>
+    `).join('');
+    listEl.querySelectorAll('.forward-contact-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const number = row.dataset.number;
+        if (state.forwardSelected.has(number)) state.forwardSelected.delete(number);
+        else state.forwardSelected.add(number);
+        row.classList.toggle('selected');
+        row.querySelector('.contact-checkbox').checked = state.forwardSelected.has(number);
+        updateForwardFooter();
+      });
+    });
+  }
+  updateForwardFooter();
+}
+
+function updateForwardFooter() {
+  const count = state.forwardSelected.size;
+  document.getElementById('forwardSelectedCount').textContent = `${count} selected`;
+  document.getElementById('forwardSendBtn').disabled = count === 0;
+}
+
+function openForwardModal(msg) {
+  state.forwardMessage = msg;
+  state.forwardSelected = new Set();
+  document.getElementById('forwardSearchInput').value = '';
+  renderForwardContactList('');
+  document.getElementById('forwardModal').hidden = false;
+}
+
+function closeForwardModal() {
+  document.getElementById('forwardModal').hidden = true;
+  state.forwardMessage = null;
+}
+
+document.getElementById('forwardModalClose').addEventListener('click', closeForwardModal);
+document.getElementById('forwardModalBackdrop').addEventListener('click', closeForwardModal);
+document.getElementById('forwardSearchInput').addEventListener('input', (e) => renderForwardContactList(e.target.value));
+
+document.getElementById('forwardSendBtn').addEventListener('click', async () => {
+  const numbers = [...state.forwardSelected];
+  const msg = state.forwardMessage;
+  if (!numbers.length || !msg) return;
+  const btn = document.getElementById('forwardSendBtn');
+  btn.disabled = true;
+  btn.textContent = 'Forwarding...';
+  const numbersText = numbers.join('\n');
+  try {
+    const hasMedia = Boolean(msg.mediaUrl || msg.mediaId);
+    let res;
+    if (!hasMedia) {
+      res = await api('/api/send-text', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg.body, numbersText }),
+      });
+    } else {
+      let mediaUrl = msg.mediaUrl;
+      let mimetype = msg.mimeType;
+      // Received media only has Meta's mediaId (no public URL we can hand
+      // to a fresh outgoing send) — pull it through our own proxy and
+      // re-upload to Blob to get a URL Meta can fetch for the new message.
+      if (!mediaUrl && msg.mediaId) {
+        const fileRes = await fetch(`/api/media/${msg.mediaId}`);
+        if (!fileRes.ok) throw new Error('Media fetch failed (shayad expire ho gaya)');
+        const blob = await fileRes.blob();
+        const ext = (blob.type || '').split('/')[1]?.split(';')[0] || 'bin';
+        const file = new File([blob], `forward-${Date.now()}.${ext}`, { type: blob.type });
+        const fd = new FormData();
+        fd.append('file', file);
+        const uploadRes = await fetch('/api/upload-media', { method: 'POST', body: fd });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.ok) throw new Error(uploadData.error || 'Upload failed');
+        mediaUrl = uploadData.url;
+        mimetype = uploadData.mimetype;
+      }
+      const isPlaceholder = /^\[[a-z]+\]$/i.test(msg.body || '');
+      res = await api('/api/send-media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaUrl, mimetype, mediaType: msg.type, caption: isPlaceholder ? '' : msg.body, numbersText }),
+      });
+    }
+    if (res.ok) toast(`Forwarded to ${res.sentTo || numbers.length}`, 'success');
+    else toast(res.failed?.[0]?.data?.error?.message || res.error || 'Forward fail hua', 'error');
+    closeForwardModal();
+    await loadAll(false);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Forward';
+  }
+});
+
 document.querySelectorAll('.conv-filter-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     state.inboxFilter = tab.dataset.inboxFilter;
+    state.selectedInboxNumbers.clear();
     document.querySelectorAll('.conv-filter-tab').forEach((t) => t.classList.toggle('active', t === tab));
     renderConversationList(document.getElementById('convSearchInput').value);
   });
@@ -1105,10 +1282,17 @@ function renderThread(number) {
       bubbleMediaHtml(m),
       showBodyText ? escapeHtml(m.body) : '',
     ].filter(Boolean).join('');
-    html += `<div class="bubble-row ${m.direction}"><div class="bubble ${m.direction} ${hasMedia ? 'has-media' : ''} ${failed ? 'failed' : ''}">${bubbleContent}<div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div></div></div>`;
+    html += `<div class="bubble-row ${m.direction}"><div class="bubble ${m.direction} ${hasMedia ? 'has-media' : ''} ${failed ? 'failed' : ''}">${bubbleContent}<div class="bubble-meta"><button type="button" class="bubble-forward-btn" data-forward-id="${escapeHtml(m.id)}" title="Forward">${ICONS.forward}</button><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div></div></div>`;
   }
   document.getElementById('threadBody').innerHTML = html;
   document.getElementById('threadBody').scrollTop = document.getElementById('threadBody').scrollHeight;
+  document.getElementById('threadBody').querySelectorAll('.bubble-forward-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const msg = sorted.find((m) => m.id === btn.dataset.forwardId);
+      if (msg) openForwardModal(msg);
+    });
+  });
 
   document.getElementById('composerNote').hidden = !!conv?.windowOpen;
   document.getElementById('composerNote').textContent = 'Ye number 24-hour free window me nahi hai — sirf approved template hi bhej sakte ho (Send Message > Template).';
