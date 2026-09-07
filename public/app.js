@@ -95,6 +95,7 @@ const ICONS = {
 const state = {
   messages: [],
   templates: [],
+  contacts: [],
   config: null,
   currentView: 'dashboard',
   activeConversation: null,
@@ -163,14 +164,16 @@ document.getElementById('topbarRefreshBtn').addEventListener('click', () => load
    Data loading
    ============================================================ */
 async function loadAll(showToastOnDone) {
-  const [msgRes, tplRes, cfgRes] = await Promise.all([
+  const [msgRes, tplRes, cfgRes, contactsRes] = await Promise.all([
     api('/api/messages'),
     api('/api/templates'),
     api('/api/config'),
+    api('/api/contacts'),
   ]);
   if (msgRes.ok) state.messages = msgRes.messages || [];
   if (tplRes.ok) state.templates = tplRes.templates || [];
   if (cfgRes.ok) state.config = cfgRes;
+  if (contactsRes.ok) state.contacts = contactsRes.contacts || [];
 
   const unreadCount = getConversations().filter((c) => c.awaitingReply).length;
   const badge = document.getElementById('inboxNavBadge');
@@ -181,7 +184,7 @@ async function loadAll(showToastOnDone) {
     renderConversationList();
     if (state.activeConversation) renderThread(state.activeConversation);
   }
-  if (state.currentView === 'contacts') renderContacts();
+  if (state.currentView === 'contacts') renderContacts(document.getElementById('contactsSearchInput').value);
 
   if (cfgRes.ok) {
     document.getElementById('connStatusDot').classList.toggle('offline', !cfgRes.connected);
@@ -881,31 +884,108 @@ function renderInfoPane(conv) {
 /* ============================================================
    Contacts
    ============================================================ */
-function renderContacts() {
-  const conversations = getConversations();
+// Unions saved (CSV-imported) contacts with numbers derived from message
+// history, so a contact shows up whether or not a conversation exists yet.
+function getMergedContacts() {
+  const byNumber = new Map();
+  for (const c of getConversations()) {
+    byNumber.set(c.number, {
+      number: c.number,
+      name: c.name,
+      lastTimestamp: c.lastTimestamp,
+      sentCount: c.messages.filter((m) => m.direction === 'sent').length,
+      recvCount: c.messages.filter((m) => m.direction === 'received').length,
+    });
+  }
+  for (const c of state.contacts) {
+    const existing = byNumber.get(c.number);
+    if (existing) { if (!existing.name && c.name) existing.name = c.name; }
+    else byNumber.set(c.number, { number: c.number, name: c.name, lastTimestamp: 0, sentCount: 0, recvCount: 0 });
+  }
+  return [...byNumber.values()].sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+}
+
+function renderContacts(filter = '') {
   const table = document.getElementById('contactsTable');
-  if (!conversations.length) {
-    table.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi contact nahi</strong><span>Jaise hi aap message bhejoge ya customer reply karega, yahan dikhega</span></div>`;
+  let list = getMergedContacts();
+  if (filter) {
+    const q = filter.toLowerCase();
+    list = list.filter((c) => c.number.includes(q) || (c.name || '').toLowerCase().includes(q));
+  }
+
+  if (!list.length) {
+    table.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi contact nahi</strong><span>CSV import karo ya message bhejo — yahan dikhne lagega</span></div>`;
     return;
   }
-  table.innerHTML = conversations.map((c) => {
-    const sentCount = c.messages.filter((m) => m.direction === 'sent').length;
-    const recvCount = c.messages.filter((m) => m.direction === 'received').length;
-    return `
-      <div class="contact-row">
-        <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
-        <div class="contact-row-info">
-          <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
-          <span>${escapeHtml(displayNumber(c.number))}</span>
-        </div>
-        <div class="contact-row-meta">
-          <strong>${sentCount} sent · ${recvCount} received</strong>
-          <span>Last: ${relativeTime(c.lastTimestamp)} ago</span>
-        </div>
+
+  table.innerHTML = list.map((c) => `
+    <div class="contact-row">
+      <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
+      <div class="contact-row-info">
+        <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
+        <span>${escapeHtml(displayNumber(c.number))}</span>
       </div>
-    `;
-  }).join('');
+      <div class="contact-row-meta">
+        <strong>${c.sentCount} sent · ${c.recvCount} received</strong>
+        <span>${c.lastTimestamp ? `Last: ${relativeTime(c.lastTimestamp)} ago` : 'No messages yet'}</span>
+      </div>
+      <button class="icon-btn" title="Send message" data-send-to="${escapeHtml(c.number)}">${ICONS.send}</button>
+    </div>
+  `).join('');
+
+  table.querySelectorAll('[data-send-to]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      resetWizard();
+      document.getElementById('sendNumbers').value = btn.dataset.sendTo;
+      updateRecipientCount();
+      goToView('send');
+    });
+  });
 }
+
+document.getElementById('contactsSearchInput').addEventListener('input', (e) => renderContacts(e.target.value));
+
+// Accepts "number" or "name,number" / "number,name" per line — whichever
+// column looks like a phone number is used as the number, the rest as name.
+function parseContactsCsv(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const contacts = [];
+  for (const line of lines) {
+    const cols = line.split(',').map((c) => c.trim()).filter(Boolean);
+    if (!cols.length) continue;
+    const numberCol = cols.find((c) => c.replace(/\D/g, '').length >= 10);
+    if (!numberCol) continue; // likely a header row or junk line
+    const name = cols.find((c) => c !== numberCol) || '';
+    contacts.push({ name, number: numberCol.replace(/\D/g, '') });
+  }
+  return contacts;
+}
+
+document.getElementById('contactsCsvInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const feedback = document.getElementById('contactsCsvFeedback');
+  feedback.textContent = 'Importing...';
+  const contacts = parseContactsCsv(await file.text());
+  if (!contacts.length) {
+    feedback.textContent = 'CSV me koi valid phone number nahi mila.';
+    e.target.value = '';
+    return;
+  }
+  const res = await api('/api/contacts/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contacts }),
+  });
+  if (res.ok) {
+    feedback.textContent = `✓ ${res.imported} contact(s) saved — dobara import nahi karna padega.`;
+    toast(`${res.imported} contacts imported`, 'success');
+    await loadAll(false);
+    renderContacts(document.getElementById('contactsSearchInput').value);
+  } else {
+    feedback.textContent = `✕ ${res.error || 'Import fail hua'}`;
+  }
+  e.target.value = '';
+});
 
 /* ============================================================
    Settings

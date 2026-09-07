@@ -870,8 +870,9 @@ a { color: inherit; }
   padding: 14px;
   border-bottom: 1px solid var(--border-soft);
 }
-.conv-search .input { padding: 9px 13px 9px 36px; background: var(--paper-soft); border: none; font-size: 13px; }
+.conv-search .input { background: var(--paper-soft); border: none; font-size: 13px; }
 .conv-search-wrap { position: relative; }
+.conv-search-wrap .input { padding-left: 36px; }
 .conv-search-wrap svg {
   position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
   width: 15px; height: 15px; color: var(--ink-faint);

@@ -246,8 +246,18 @@
       <!-- ===================== CONTACTS ===================== -->
       <section class="view" data-view="contacts">
         <div class="section-heading">
-          <div><h2>Contacts</h2><p>Un numbers ki list jinse conversation hui hai</p></div>
+          <div><h2>Contacts</h2><p>Ek baar CSV import karo, dobara nahi karna padega</p></div>
+          <label class="btn btn-primary" style="cursor:pointer;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            Import CSV
+            <input type="file" id="contactsCsvInput" accept=".csv,.txt" hidden />
+          </label>
         </div>
+        <div class="conv-search-wrap" style="max-width:360px;margin-bottom:16px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" id="contactsSearchInput" placeholder="Naam ya number se search karo..." />
+        </div>
+        <p class="field-hint" id="contactsCsvFeedback" style="margin-bottom:14px;"></p>
         <div class="contact-table" id="contactsTable"></div>
       </section>
 

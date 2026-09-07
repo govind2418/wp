@@ -51,6 +51,17 @@ async function getMessages(limit = 500) {
     .map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
 }
 
+// Saved contacts (from CSV import) — a Hash keyed by cleaned phone number,
+// separate from the message log so a contact persists even before any
+// message has ever been sent to or received from them.
+const CONTACTS_KEY = 'wa:contacts';
+
+async function getContacts() {
+  if (!redis) return [];
+  const all = await redis.hgetall(CONTACTS_KEY);
+  return Object.values(all || {}).map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
+}
+
 // Turns an outgoing Graph API request body into a short human-readable
 // summary for the Inbox (e.g. "Template: hello_world" or the raw text).
 function describeSentBody(body) {
@@ -82,7 +93,8 @@ const GRAPH_API_VERSION = 'v25.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const WHATSAPP_API_URL = `${GRAPH_BASE}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
-app.use(express.json());
+// Default 100kb limit is too small for large CSV/vCard contact imports.
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function cleanNumber(raw) {
@@ -270,6 +282,31 @@ app.post('/api/send-media', async (req, res) => {
   }));
 
   res.json(result);
+});
+
+// Returns saved contacts (imported via CSV).
+app.get('/api/contacts', async (req, res) => {
+  if (!redis) return res.json({ ok: true, contacts: [], warning: 'Contacts database configured nahi hai.' });
+  res.json({ ok: true, contacts: await getContacts() });
+});
+
+// Bulk-saves contacts (from a CSV upload) so they only need to be imported once.
+// Re-importing the same number updates its name rather than duplicating it.
+app.post('/api/contacts/import', async (req, res) => {
+  if (!redis) return res.status(500).json({ ok: false, error: 'Contacts database configured nahi hai.' });
+  const { contacts } = req.body;
+  if (!Array.isArray(contacts) || !contacts.length) {
+    return res.status(400).json({ ok: false, error: 'Koi valid contact nahi mila.' });
+  }
+  const entries = {};
+  for (const c of contacts) {
+    const number = cleanNumber(c.number || '');
+    if (number.length < 10) continue;
+    entries[number] = JSON.stringify({ number, name: (c.name || '').trim(), importedAt: Date.now() });
+  }
+  const imported = Object.keys(entries).length;
+  if (imported) await redis.hset(CONTACTS_KEY, entries);
+  res.json({ ok: true, imported });
 });
 
 // Non-secret display info for the Settings page (never returns tokens).
