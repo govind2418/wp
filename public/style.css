@@ -59,6 +59,10 @@
    specificity tie against the `hidden` attribute's default `display: none`. */
 [hidden] { display: none !important; }
 html, body { height: 100%; }
+/* Stops touch-scroll momentum from "leaking" past the message list /
+   conversation list into a whole-page scroll once it hits the top or
+   bottom of its own content (the classic mobile overscroll-chaining bug). */
+html, body { overscroll-behavior-y: none; }
 
 body {
   margin: 0;
@@ -901,7 +905,7 @@ a { color: inherit; }
 .conv-filter-tab.active { background: var(--charcoal-900); color: white; border-color: var(--charcoal-900); }
 .conv-filter-tab .filter-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
-.conv-list { flex: 1; overflow-y: auto; }
+.conv-list { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; }
 
 .window-badge {
   display: inline-flex;
@@ -954,6 +958,7 @@ a { color: inherit; }
 .thread-body {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 20px 22px;
   background:
     radial-gradient(circle at 15% 20%, rgba(23,168,102,0.035) 0, transparent 45%),
@@ -1280,6 +1285,14 @@ a { color: inherit; }
   .app-shell:not(.inbox-open) .thread-pane { display: none; }
   .thread-back-btn { display: flex; }
   .bubble { max-width: 82%; }
+
+  /* Once a chat is open, the outer "Inbox" page title is redundant —
+     only the contact's own name (thread-header) needs to show at top. */
+  .app-shell.inbox-open .topbar { display: none; }
+  .app-shell.inbox-open .inbox-layout {
+    height: calc(100vh - var(--bottomnav-h) - 8px);
+    height: calc(100dvh - var(--bottomnav-h) - 8px);
+  }
 
   .wizard-progress { gap: 3px; }
   .wizard-step span.label { display: none; }

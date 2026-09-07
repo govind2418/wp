@@ -1121,14 +1121,25 @@ async function sendThreadReply() {
   const text = input.value.trim();
   if (!text || !state.activeConversation) return;
   input.value = '';
+  updateComposerButtons();
+
+  // Show the message immediately instead of waiting on the round-trip —
+  // loadAll() below reconciles it with the real record (with WhatsApp's own
+  // id and delivery status) once the send actually completes.
+  const number = state.activeConversation;
+  const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  state.messages.unshift({ id: localId, direction: 'sent', number, type: 'text', body: text, timestamp: Date.now(), ok: true });
+  renderThread(number);
+
   const res = await api('/api/send-text', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: text, numbersText: state.activeConversation }),
+    body: JSON.stringify({ message: text, numbersText: number }),
   });
+  state.messages = state.messages.filter((m) => m.id !== localId);
   if (!res.ok && res.error) toast(res.error, 'error');
   else if (res.failed?.length) toast(res.failed[0].data?.error?.message || 'Message fail hua', 'error');
   await loadAll(false);
-  renderThread(state.activeConversation);
+  if (state.activeConversation === number) renderThread(number);
 }
 
 function renderInfoPane(conv) {
