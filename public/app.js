@@ -1353,20 +1353,22 @@ function renderInfoPane(conv) {
 function getMergedContacts() {
   const byNumber = new Map();
   for (const c of getConversations()) {
-    byNumber.set(c.number, {
-      number: c.number,
-      name: c.name,
-      lastTimestamp: c.lastTimestamp,
-      sentCount: c.messages.filter((m) => m.direction === 'sent').length,
-      recvCount: c.messages.filter((m) => m.direction === 'received').length,
-    });
+    byNumber.set(c.number, { number: c.number, name: c.name });
   }
   for (const c of state.contacts) {
     const existing = byNumber.get(c.number);
     if (existing) { if (!existing.name && c.name) existing.name = c.name; }
-    else byNumber.set(c.number, { number: c.number, name: c.name, lastTimestamp: 0, sentCount: 0, recvCount: 0 });
+    else byNumber.set(c.number, { number: c.number, name: c.name });
   }
-  return [...byNumber.values()].sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+  // Named contacts sort alphabetically first — number-only contacts (most of
+  // a raw CSV import) would otherwise dominate the top since digits sort
+  // before letters, burying every named contact past the render cap.
+  return [...byNumber.values()].sort((a, b) => {
+    if (Boolean(a.name) !== Boolean(b.name)) return a.name ? -1 : 1;
+    return a.name
+      ? a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      : a.number.localeCompare(b.number);
+  });
 }
 
 const CONTACTS_RENDER_CAP = 200;
@@ -1417,10 +1419,6 @@ function renderContacts(filter = '') {
       <div class="contact-row-info">
         <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
         <span>${escapeHtml(displayNumber(c.number))}</span>
-      </div>
-      <div class="contact-row-meta">
-        <strong>${c.sentCount} sent · ${c.recvCount} received</strong>
-        <span>${c.lastTimestamp ? `Last: ${relativeTime(c.lastTimestamp)} ago` : 'No messages yet'}</span>
       </div>
       <button class="icon-btn" title="Send message" data-send-to="${escapeHtml(c.number)}">${ICONS.send}</button>
     </div>
