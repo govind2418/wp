@@ -6,7 +6,7 @@ const fsPromises = require('fs/promises');
 const { spawn } = require('child_process');
 const multer = require('multer');
 const { Redis } = require('@upstash/redis');
-const { put } = require('@vercel/blob');
+const { put, list, del } = require('@vercel/blob');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
 const app = express();
@@ -536,6 +536,36 @@ app.post('/api/webhook', async (req, res) => {
     console.error('Webhook processing error:', err);
   }
   res.sendStatus(200);
+});
+
+// Daily cleanup — deletes uploaded media older than 5 days so Blob storage
+// doesn't grow unbounded. Triggered by Vercel Cron (see vercel.json); the
+// CRON_SECRET check stops anyone else from hitting this endpoint publicly.
+app.get('/api/cron/cleanup-media', async (req, res) => {
+  if (process.env.CRON_SECRET) {
+    if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) return res.sendStatus(401);
+  }
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.json({ ok: true, deleted: 0, note: 'Blob storage configured nahi hai.' });
+  }
+  const MAX_AGE_MS = 5 * 24 * 3600 * 1000;
+  const cutoff = Date.now() - MAX_AGE_MS;
+  try {
+    let cursor;
+    let deleted = 0;
+    do {
+      const result = await list({ prefix: 'uploads/', cursor, limit: 1000 });
+      const old = result.blobs.filter((b) => new Date(b.uploadedAt).getTime() < cutoff);
+      if (old.length) {
+        await del(old.map((b) => b.url));
+        deleted += old.length;
+      }
+      cursor = result.cursor;
+    } while (cursor);
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
