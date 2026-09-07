@@ -1298,6 +1298,11 @@ a { color: inherit; }
     border-radius: 0;
   }
 
+  /* iOS Safari zooms the whole page in on focus for any input under 16px,
+     then leaves it zoomed until the user manually pinches back out (which
+     is what made the send button "disappear" until zoom-out). */
+  .input, textarea.input, select.input, .composer textarea, .conv-search .input { font-size: 16px; }
+
   .wizard-progress { gap: 3px; }
   .wizard-step span.label { display: none; }
   .wizard-connector { width: 14px; }
