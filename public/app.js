@@ -87,7 +87,117 @@ const ICONS = {
   paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
   smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
 };
+
+const EMOJI_LIST = [
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘',
+  '😋', '😛', '😜', '🤪', '🤓', '😎', '🥸', '😏', '😒', '😞', '😔', '🙁', '😣', '😢', '😭', '😤',
+  '😠', '🤯', '😳', '🥵', '🥶', '😱', '😰', '🥺', '🤗', '🤔', '🤭', '🤫', '🙄', '😴', '🤤', '😷',
+  '🤒', '🥳', '😇', '🤠', '👍', '👎', '👌', '✌️', '🤞', '🙏', '👏', '🙌', '👋', '💪', '🤝', '❤️',
+  '🔥', '⭐', '✅', '❌', '🎉', '💯', '📌', '📍', '💰', '💵', '📞', '📱', '📦', '🚚', '🏠', '🏢',
+];
+
+// Shared voice-recording state for the Inbox composer.
+const recorderState = { mediaRecorder: null, stream: null, chunks: [], startedAt: null, timer: null };
+
+function updateComposerButtons() {
+  const input = document.getElementById('threadComposerInput');
+  const sendBtn = document.getElementById('threadSendBtn');
+  const micBtn = document.getElementById('composerMicBtn');
+  if (!input || !sendBtn || !micBtn) return;
+  const hasText = input.value.trim().length > 0;
+  sendBtn.hidden = !hasText;
+  micBtn.hidden = hasText;
+}
+
+function setRecordingUi(active) {
+  document.getElementById('composerBar').classList.toggle('recording', active);
+  document.getElementById('threadComposerInput').hidden = active;
+  document.getElementById('composerRecordingInline').hidden = !active;
+  document.getElementById('composerAttachBtn').hidden = active;
+  document.getElementById('composerEmojiBtn').hidden = active;
+  document.getElementById('recCancelBtn').hidden = !active;
+}
+
+// WhatsApp's supported audio formats don't include plain WebM — prefer MP4
+// (AAC), which Chrome/Edge/Safari can record directly and Meta accepts.
+const AUDIO_MIME_CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
+function pickAudioMimeType() {
+  return AUDIO_MIME_CANDIDATES.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = pickAudioMimeType();
+    recorderState.stream = stream;
+    recorderState.chunks = [];
+    recorderState.mimeType = mimeType || 'audio/webm';
+    recorderState.mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    recorderState.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recorderState.chunks.push(e.data); };
+    recorderState.mediaRecorder.start();
+    recorderState.startedAt = Date.now();
+    setRecordingUi(true);
+    recorderState.timer = setInterval(() => {
+      const secs = Math.floor((Date.now() - recorderState.startedAt) / 1000);
+      const el = document.getElementById('recTimer');
+      if (el) el.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    }, 500);
+  } catch (err) {
+    toast('Microphone access nahi mila', 'error');
+  }
+}
+
+function teardownRecording() {
+  clearInterval(recorderState.timer);
+  recorderState.stream?.getTracks().forEach((t) => t.stop());
+  recorderState.mediaRecorder = null;
+  recorderState.stream = null;
+  setRecordingUi(false);
+}
+
+function stopRecordingAndSend() {
+  if (!recorderState.mediaRecorder) return;
+  const chunks = recorderState.chunks;
+  const conversationNumber = state.activeConversation;
+  recorderState.mediaRecorder.onstop = async () => {
+    teardownRecording();
+    if (!chunks.length || !conversationNumber) return;
+    const mimeType = recorderState.mimeType || 'audio/webm';
+    const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const blob = new Blob(chunks, { type: mimeType });
+    if (blob.size < 800) { toast('Recording bahut chhoti thi', 'error'); return; }
+    const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
+    toast('Sending voice message...');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const uploadRes = await fetch('/api/upload-media', { method: 'POST', body: fd });
+      const uploadData = await uploadRes.json();
+      if (!uploadData.ok) throw new Error(uploadData.error || 'Upload failed');
+      const res = await api('/api/send-media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaUrl: uploadData.url, mimetype: uploadData.mimetype, mediaType: 'audio', numbersText: conversationNumber }),
+      });
+      if (!res.ok) throw new Error(res.error || (res.failed?.[0]?.data?.error?.message) || 'Send failed');
+      toast('Voice message sent', 'success');
+      await loadAll(false);
+      if (state.activeConversation === conversationNumber) renderThread(conversationNumber);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+  recorderState.mediaRecorder.stop();
+}
+
+function cancelRecording() {
+  if (!recorderState.mediaRecorder) return;
+  recorderState.mediaRecorder.onstop = () => teardownRecording();
+  recorderState.mediaRecorder.stop();
+  recorderState.chunks = [];
+}
 
 /* ============================================================
    Global state
@@ -805,6 +915,7 @@ function bubbleMediaHtml(m) {
   if (m.direction === 'sent' && m.mediaUrl) {
     if (m.type === 'image') return `<img src="${m.mediaUrl}" alt="" />`;
     if (m.type === 'video') return `<video src="${m.mediaUrl}" controls></video>`;
+    if (m.type === 'audio') return `<audio src="${m.mediaUrl}" controls style="width:100%;margin-bottom:6px;"></audio>`;
     return `<a class="bubble-doc-link" href="${m.mediaUrl}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(m.body || 'Document')}</a>`;
   }
   if (m.direction === 'received' && m.mediaId) {
@@ -831,11 +942,20 @@ function renderThread(number) {
       </div>
       <div class="thread-body" id="threadBody"></div>
       <div class="composer-session-note" id="composerNote" hidden></div>
-      <div class="composer">
-        <button class="composer-icon-btn" title="Attach" disabled>${ICONS.paperclip}</button>
-        <textarea id="threadComposerInput" rows="1" placeholder="Type a message..."></textarea>
-        <button class="composer-icon-btn" title="Emoji" disabled>${ICONS.smile}</button>
-        <button class="composer-send-btn" id="threadSendBtn">${ICONS.send}</button>
+      <div class="emoji-picker" id="emojiPicker" hidden></div>
+      <div class="composer" id="composerBar">
+        <input type="file" id="composerFileInput" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" hidden />
+        <button class="composer-icon-btn" id="composerAttachBtn" title="Attach">${ICONS.paperclip}</button>
+        <div class="composer-input-area">
+          <textarea id="threadComposerInput" rows="1" placeholder="Type a message..."></textarea>
+          <div class="composer-recording-inline" id="composerRecordingInline" hidden>
+            <span class="rec-dot"></span><span id="recTimer">0:00</span>
+          </div>
+          <button class="composer-icon-btn composer-emoji-btn" id="composerEmojiBtn" title="Emoji">${ICONS.smile}</button>
+        </div>
+        <button class="composer-icon-btn" id="recCancelBtn" title="Cancel recording" hidden>${ICONS.close}</button>
+        <button class="composer-icon-btn composer-mic-btn" id="composerMicBtn" title="Record voice">${ICONS.mic}</button>
+        <button class="composer-send-btn" id="threadSendBtn" hidden>${ICONS.send}</button>
       </div>
     `);
     document.getElementById('threadBackBtn').addEventListener('click', () => {
@@ -845,6 +965,74 @@ function renderThread(number) {
     document.getElementById('threadComposerInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendThreadReply(); }
     });
+    document.getElementById('threadComposerInput').addEventListener('input', updateComposerButtons);
+    updateComposerButtons();
+
+    // Attach — reuses the same upload+send-media endpoints as the Send wizard.
+    document.getElementById('composerAttachBtn').addEventListener('click', () => {
+      document.getElementById('composerFileInput').click();
+    });
+    document.getElementById('composerFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file || !state.activeConversation) return;
+      const caption = document.getElementById('threadComposerInput').value.trim();
+      toast('Uploading...');
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const uploadRes = await fetch('/api/upload-media', { method: 'POST', body: fd });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.ok) throw new Error(uploadData.error || 'Upload failed');
+        const res = await api('/api/send-media', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediaUrl: uploadData.url, mimetype: uploadData.mimetype, caption, filename: file.name, numbersText: state.activeConversation }),
+        });
+        if (!res.ok) throw new Error(res.error || (res.failed?.[0]?.data?.error?.message) || 'Send failed');
+        document.getElementById('threadComposerInput').value = '';
+        updateComposerButtons();
+        toast('Media sent', 'success');
+        await loadAll(false);
+        renderThread(state.activeConversation);
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
+    // Emoji picker
+    document.getElementById('composerEmojiBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const picker = document.getElementById('emojiPicker');
+      if (!picker.hidden) { picker.hidden = true; return; }
+      if (!picker.dataset.built) {
+        picker.innerHTML = EMOJI_LIST.map((em) => `<button type="button" class="emoji-item">${em}</button>`).join('');
+        picker.dataset.built = '1';
+        picker.querySelectorAll('.emoji-item').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const input = document.getElementById('threadComposerInput');
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            input.value = input.value.slice(0, start) + btn.textContent + input.value.slice(end);
+            input.focus();
+            input.selectionStart = input.selectionEnd = start + btn.textContent.length;
+            updateComposerButtons();
+          });
+        });
+      }
+      picker.hidden = false;
+    });
+    document.addEventListener('click', (e) => {
+      const picker = document.getElementById('emojiPicker');
+      const emojiBtn = document.getElementById('composerEmojiBtn');
+      if (picker && !picker.hidden && !picker.contains(e.target) && e.target !== emojiBtn) picker.hidden = true;
+    });
+
+    // Voice recording
+    document.getElementById('composerMicBtn').addEventListener('click', () => {
+      if (recorderState.mediaRecorder && recorderState.mediaRecorder.state === 'recording') stopRecordingAndSend();
+      else startRecording();
+    });
+    document.getElementById('recCancelBtn').addEventListener('click', cancelRecording);
   }
 
   document.getElementById('threadAvatar').textContent = initials(conv?.name, number);

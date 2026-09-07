@@ -1,12 +1,54 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const os = require('os');
+const fsPromises = require('fs/promises');
+const { spawn } = require('child_process');
 const multer = require('multer');
 const { Redis } = require('@upstash/redis');
 const { put } = require('@vercel/blob');
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Browsers can't record audio in a container WhatsApp accepts (WebM is
+// rejected outright; Chrome's "audio/mp4" output is a fragmented stream
+// Meta's validator rejects as application/octet-stream despite the label).
+// Every uploaded audio file is re-encoded to mono Ogg/Opus before it
+// reaches Blob storage, regardless of its declared mimetype.
+
+async function transcodeToOggOpus(inputBuffer) {
+  const base = path.join(os.tmpdir(), `voice-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const inPath = `${base}.in`;
+  const outPath = `${base}.ogg`;
+  await fsPromises.writeFile(inPath, inputBuffer);
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffmpegPath, ['-y', '-i', inPath, '-ac', '1', '-c:a', 'libopus', '-b:a', '32k', '-f', 'ogg', outPath]);
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', reject);
+    proc.on('close', async (code) => {
+      const cleanup = () => Promise.all([
+        fsPromises.unlink(inPath).catch(() => {}),
+        fsPromises.unlink(outPath).catch(() => {}),
+      ]);
+      if (code !== 0) {
+        await cleanup();
+        return reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-400)}`));
+      }
+      try {
+        const outBuffer = await fsPromises.readFile(outPath);
+        await cleanup();
+        resolve(outBuffer);
+      } catch (err) {
+        await cleanup();
+        reject(err);
+      }
+    });
+  });
+}
 
 const redis =
   process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN
@@ -232,12 +274,26 @@ app.post('/api/upload-media', upload.single('file'), async (req, res) => {
     return res.status(500).json({ ok: false, error: 'Blob storage configured nahi hai (BLOB_READ_WRITE_TOKEN missing).' });
   }
   try {
-    const safeName = Date.now() + '-' + req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const blob = await put(`uploads/${safeName}`, req.file.buffer, {
+    let buffer = req.file.buffer;
+    let mimetype = req.file.mimetype;
+    let originalname = req.file.originalname;
+
+    // Always re-encode audio, never trust the declared mimetype: browsers'
+    // MediaRecorder labels its output "audio/mp4" but produces a fragmented
+    // stream Meta's validator rejects as application/octet-stream, and
+    // "audio/webm" isn't in WhatsApp's supported list at all.
+    if (mimetype.startsWith('audio/')) {
+      buffer = await transcodeToOggOpus(buffer);
+      mimetype = 'audio/ogg';
+      originalname = originalname.replace(/\.[^.]+$/, '') + '.ogg';
+    }
+
+    const safeName = Date.now() + '-' + originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const blob = await put(`uploads/${safeName}`, buffer, {
       access: 'public',
-      contentType: req.file.mimetype,
+      contentType: mimetype,
     });
-    res.json({ ok: true, url: blob.url, mimetype: req.file.mimetype });
+    res.json({ ok: true, url: blob.url, mimetype });
   } catch (err) {
     res.status(500).json({ ok: false, error: `Upload failed: ${err.message}` });
   }
@@ -470,6 +526,7 @@ app.post('/api/webhook', async (req, res) => {
 
     // Delivery-status callbacks (sent/delivered/read/failed) for messages we sent.
     for (const s of statuses) {
+      if (s.errors?.length) console.error('WhatsApp status error:', JSON.stringify(s.errors));
       await updateMessageStatus(s.id, s.status, {
         statusTimestamp: s.timestamp ? Number(s.timestamp) * 1000 : Date.now(),
         error: s.errors?.[0]?.title,
