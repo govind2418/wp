@@ -352,6 +352,16 @@ function formatWindowRemaining(expiresAt) {
   return hrs > 0 ? `${hrs}h ${mins}m left` : `${mins}m left`;
 }
 
+const MEDIA_PREVIEW_LABELS = { audio: '🎤 Voice message', image: '📷 Photo', video: '🎥 Video', document: '📄 Document', sticker: '😊 Sticker' };
+
+// A friendly one-line preview for conversation lists / activity feeds —
+// shows "🎤 Voice message" etc. instead of the raw "[audio]" placeholder.
+function previewLabel(m) {
+  if (!m) return '';
+  if (/^\[[a-z]+\]$/i.test(m.body || '')) return MEDIA_PREVIEW_LABELS[m.type] || m.body;
+  return m.body || '';
+}
+
 /* ============================================================
    Dashboard
    ============================================================ */
@@ -417,7 +427,7 @@ function renderDashboard() {
         <div class="activity-icon ${m.direction}">${m.direction === 'sent' ? ICONS.send : ICONS.inbox}</div>
         <div class="activity-body">
           <strong>${m.direction === 'sent' ? 'Sent to' : 'From'} ${escapeHtml(displayNumber(m.number))}</strong>
-          <span>${escapeHtml(m.body || '')}</span>
+          <span>${escapeHtml(previewLabel(m))}</span>
         </div>
         <div class="activity-time">${relativeTime(m.timestamp)}</div>
       </div>
@@ -876,7 +886,7 @@ function renderConversationList(filter = '') {
           <span class="conv-item-time">${relativeTime(c.lastTimestamp)}</span>
         </div>
         <div class="conv-item-bottom">
-          <span>${c.lastMessage?.direction === 'sent' ? 'You: ' : ''}${escapeHtml(c.lastMessage?.body || '')}</span>
+          <span>${c.lastMessage?.direction === 'sent' ? 'You: ' : ''}${escapeHtml(previewLabel(c.lastMessage))}</span>
           ${c.windowOpen ? `<span class="window-badge"><span class="filter-dot"></span>${formatWindowRemaining(c.windowExpiresAt)}</span>` : c.awaitingReply ? '<span class="unread-dot"></span>' : ''}
         </div>
       </div>
@@ -911,19 +921,24 @@ function tickIcon(m) {
   return `<span class="bubble-ticks tick-sent">${ICONS.check}</span>`;
 }
 
+function docLinkLabel(m) {
+  const isPlaceholder = /^\[[a-z]+\]$/i.test(m.body || '');
+  return m.body && !isPlaceholder ? m.body : 'Document';
+}
+
 function bubbleMediaHtml(m) {
   if (m.direction === 'sent' && m.mediaUrl) {
     if (m.type === 'image') return `<img src="${m.mediaUrl}" alt="" />`;
     if (m.type === 'video') return `<video src="${m.mediaUrl}" controls></video>`;
-    if (m.type === 'audio') return `<audio src="${m.mediaUrl}" controls style="width:100%;margin-bottom:6px;"></audio>`;
-    return `<a class="bubble-doc-link" href="${m.mediaUrl}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(m.body || 'Document')}</a>`;
+    if (m.type === 'audio') return `<audio src="${m.mediaUrl}" controls preload="metadata"></audio>`;
+    return `<a class="bubble-doc-link" href="${m.mediaUrl}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(docLinkLabel(m))}</a>`;
   }
   if (m.direction === 'received' && m.mediaId) {
     const src = `/api/media/${m.mediaId}`;
     if (m.type === 'image' || m.type === 'sticker') return `<img src="${src}" alt="" />`;
     if (m.type === 'video') return `<video src="${src}" controls></video>`;
-    if (m.type === 'audio') return `<audio src="${src}" controls style="width:100%;margin-bottom:6px;"></audio>`;
-    return `<a class="bubble-doc-link" href="${src}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(m.body || 'Document')}</a>`;
+    if (m.type === 'audio') return `<audio src="${src}" controls preload="metadata"></audio>`;
+    return `<a class="bubble-doc-link" href="${src}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(docLinkLabel(m))}</a>`;
   }
   return '';
 }
@@ -1046,11 +1061,16 @@ function renderThread(number) {
     const dayLabel = formatDayLabel(m.timestamp);
     if (dayLabel !== lastDay) { html += `<div class="date-sep">${dayLabel}</div>`; lastDay = dayLabel; }
     const failed = m.direction === 'sent' && (m.status === 'failed' || m.ok === false);
+    const hasMedia = Boolean(m.mediaUrl || m.mediaId);
+    // Bodies like "[audio]"/"[image]" are just our own placeholder for
+    // media with no real caption — don't show that as if it were text.
+    const isPlaceholderBody = /^\[[a-z]+\]$/i.test(m.body || '');
+    const showBodyText = m.body && !(hasMedia && isPlaceholderBody);
     html += `
       <div class="bubble-row ${m.direction}">
-        <div class="bubble ${m.direction} ${failed ? 'failed' : ''}">
+        <div class="bubble ${m.direction} ${hasMedia && m.type === 'audio' ? 'has-audio' : ''} ${failed ? 'failed' : ''}">
           ${bubbleMediaHtml(m)}
-          ${escapeHtml(m.body || '')}
+          ${showBodyText ? escapeHtml(m.body) : ''}
           <div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div>
         </div>
       </div>
