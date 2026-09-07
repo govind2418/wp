@@ -1068,7 +1068,7 @@ function renderThread(number) {
     const showBodyText = m.body && !(hasMedia && isPlaceholderBody);
     html += `
       <div class="bubble-row ${m.direction}">
-        <div class="bubble ${m.direction} ${hasMedia && m.type === 'audio' ? 'has-audio' : ''} ${failed ? 'failed' : ''}">
+        <div class="bubble ${m.direction} ${hasMedia ? 'has-media' : ''} ${failed ? 'failed' : ''}">
           ${bubbleMediaHtml(m)}
           ${showBodyText ? escapeHtml(m.body) : ''}
           <div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div>
