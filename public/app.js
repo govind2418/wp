@@ -905,6 +905,36 @@ function renderConversationList(filter = '') {
 
 document.getElementById('convSearchInput').addEventListener('input', (e) => renderConversationList(e.target.value));
 
+// Tap-to-open image lightbox, WhatsApp-style (documents already open via target="_blank" links).
+(function initMediaLightbox() {
+  const lightbox = document.getElementById('mediaLightbox');
+  const lightboxImg = document.getElementById('mediaLightboxImg');
+  const closeBtn = document.getElementById('mediaLightboxClose');
+  if (!lightbox || !lightboxImg) return;
+
+  function openLightbox(src) {
+    lightboxImg.src = src;
+    lightbox.hidden = false;
+  }
+  function closeLightbox() {
+    lightbox.hidden = true;
+    lightboxImg.src = '';
+  }
+
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest('.bubble img');
+    if (img) openLightbox(img.src);
+  });
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightboxImg) return;
+    closeLightbox();
+  });
+  closeBtn.addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !lightbox.hidden) closeLightbox();
+  });
+})();
+
 document.querySelectorAll('.conv-filter-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     state.inboxFilter = tab.dataset.inboxFilter;
