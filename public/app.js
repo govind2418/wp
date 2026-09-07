@@ -212,7 +212,7 @@ const state = {
   forwardMessage: null,
   forwardSelected: new Set(),
   config: null,
-  currentView: 'dashboard',
+  currentView: 'inbox',
   activeConversation: null,
   inboxFilter: 'all', // 'all' | 'open' (free 24-hour window open)
   send: {
@@ -1521,4 +1521,4 @@ function renderSettings() {
 /* ============================================================
    Boot
    ============================================================ */
-goToView('dashboard');
+goToView('inbox');

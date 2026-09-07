@@ -123,6 +123,11 @@
 </div>
 
 <script>
+  // If the phone's back button lands here while the session cookie is
+  // still valid (common right after logging in), skip the PIN pad
+  // instead of falsely asking to log in again.
+  fetch('/api/gate/status').then((res) => { if (res.ok) window.location.replace('/'); }).catch(() => {});
+
   let pin = '';
   let busy = false;
   const dots = document.querySelectorAll('.gate-dot');
@@ -156,7 +161,9 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
-        window.location.href = '/';
+        // replace(), not href= — keeps this page out of browser history so
+        // the phone's back button can't land back on the PIN screen.
+        window.location.replace('/');
         return;
       }
       showError(data.error || 'Wrong PIN');

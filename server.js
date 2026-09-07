@@ -226,6 +226,11 @@ app.post('/api/gate/login', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Lets login.html check "am I already signed in?" without showing the PIN
+// pad — gateMiddleware itself does the real check (401 if the session
+// cookie is missing/invalid), this just needs to exist behind it.
+app.get('/api/gate/status', (req, res) => res.json({ ok: true }));
+
 app.post('/api/gate/logout', async (req, res) => {
   const token = parseCookies(req)[GATE_COOKIE];
   if (token && redis) await redis.del(`gate:session:${token}`);
