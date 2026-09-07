@@ -13,26 +13,42 @@ const redis =
     ? new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN })
     : null;
 
-const MESSAGES_KEY = 'wa:messages';
-const MAX_STORED_MESSAGES = 500;
+// Messages are stored as a Hash (key = WhatsApp's own message id, so incoming
+// delivery/read status webhooks can update the right record) plus an ordered
+// list of ids for pagination — an append-only list alone can't be updated by id.
+const MESSAGES_HASH = 'wa:messages';
+const MESSAGES_ORDER = 'wa:messages:order';
+const MAX_STORED_MESSAGES = 1000;
 
-// Stores one inbox entry (sent or received) in Redis. No-ops silently if
-// Redis isn't configured, so the app still works without an Inbox.
 async function logMessage(entry) {
-  if (!redis) return;
-  const record = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: Date.now(),
-    ...entry,
-  };
-  await redis.lpush(MESSAGES_KEY, JSON.stringify(record));
-  await redis.ltrim(MESSAGES_KEY, 0, MAX_STORED_MESSAGES - 1);
+  if (!redis) return null;
+  const id = entry.id || `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const record = { status: entry.direction === 'sent' ? 'sent' : undefined, timestamp: Date.now(), ...entry, id };
+  await redis.hset(MESSAGES_HASH, { [id]: JSON.stringify(record) });
+  await redis.lpush(MESSAGES_ORDER, id);
+  await redis.ltrim(MESSAGES_ORDER, 0, MAX_STORED_MESSAGES - 1);
+  return record;
 }
 
-async function getMessages(limit = 300) {
+// Merges a delivery-status update (sent/delivered/read/failed) from Meta's
+// webhook into an existing sent-message record, matched by WhatsApp message id.
+async function updateMessageStatus(id, status, extra = {}) {
+  if (!redis || !id) return;
+  const raw = await redis.hget(MESSAGES_HASH, id);
+  if (!raw) return; // message predates this feature, or was trimmed
+  const record = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  await redis.hset(MESSAGES_HASH, { [id]: JSON.stringify({ ...record, status, ...extra }) });
+}
+
+async function getMessages(limit = 500) {
   if (!redis) return [];
-  const raw = await redis.lrange(MESSAGES_KEY, 0, limit - 1);
-  return raw.map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
+  const ids = await redis.lrange(MESSAGES_ORDER, 0, limit - 1);
+  if (!ids.length) return [];
+  const map = await redis.hmget(MESSAGES_HASH, ...ids);
+  return ids
+    .map((id) => map[id])
+    .filter(Boolean)
+    .map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
 }
 
 // Turns an outgoing Graph API request body into a short human-readable
@@ -61,8 +77,10 @@ const upload = multer({
 
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_BUSINESS_ACCOUNT_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
 const GRAPH_API_VERSION = 'v25.0';
-const WHATSAPP_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const WHATSAPP_API_URL = `${GRAPH_BASE}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -115,13 +133,19 @@ async function sendToMany(numbers, buildBody) {
   for (const to of numbers) {
     const body = buildBody(to);
     const result = await sendWhatsAppMessage(body);
+    const wamid = result.data?.messages?.[0]?.id;
     results.push({ to, ...result });
+    const mediaObj = ['image', 'document', 'video', 'audio'].includes(body.type) ? body[body.type] : null;
     await logMessage({
+      id: wamid,
       direction: 'sent',
       number: to,
       type: body.type,
       body: describeSentBody(body),
+      mediaUrl: mediaObj?.link,
       ok: result.ok,
+      status: result.ok ? 'sent' : 'failed',
+      error: result.ok ? undefined : result.data?.error?.message || result.error,
     });
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -248,13 +272,115 @@ app.post('/api/send-media', async (req, res) => {
   res.json(result);
 });
 
+// Non-secret display info for the Settings page (never returns tokens).
+app.get('/api/config', (req, res) => {
+  res.json({
+    ok: true,
+    connected: Boolean(WHATSAPP_ACCESS_TOKEN && WHATSAPP_PHONE_NUMBER_ID),
+    phoneNumberId: WHATSAPP_PHONE_NUMBER_ID || null,
+    wabaId: WHATSAPP_BUSINESS_ACCOUNT_ID || null,
+    hasInbox: Boolean(redis),
+  });
+});
+
 // Returns the stored Inbox log (sent + received messages), newest first.
 app.get('/api/messages', async (req, res) => {
   if (!redis) {
     return res.json({ ok: true, messages: [], warning: 'Inbox database configured nahi hai.' });
   }
-  const messages = await getMessages(300);
+  const messages = await getMessages(500);
   res.json({ ok: true, messages });
+});
+
+// Lists approved WhatsApp message templates for this business account, for
+// the Templates picker. Falls back to an empty list (with a warning) if the
+// WABA id isn't configured, rather than failing the whole page.
+app.get('/api/templates', async (req, res) => {
+  if (requireCredentials(res)) return;
+  if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
+    return res.json({ ok: true, templates: [], warning: 'WHATSAPP_BUSINESS_ACCOUNT_ID set nahi hai.' });
+  }
+  try {
+    const url = `${GRAPH_BASE}/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?fields=name,status,category,language,components&limit=100`;
+    const apiRes = await fetch(url, { headers: { Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}` } });
+    const data = await apiRes.json();
+    if (!apiRes.ok) {
+      return res.status(apiRes.status).json({ ok: false, error: data.error?.message || 'Templates fetch fail hua.' });
+    }
+    res.json({ ok: true, templates: data.data || [] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Streams a customer-sent media file (image/document/video/audio) to the
+// browser. WhatsApp media URLs expire in minutes and require the access
+// token to fetch, so the client can't use them directly — this proxies it.
+app.get('/api/media/:mediaId', async (req, res) => {
+  if (requireCredentials(res)) return;
+  try {
+    const metaRes = await fetch(`${GRAPH_BASE}/${req.params.mediaId}`, {
+      headers: { Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}` },
+    });
+    const meta = await metaRes.json();
+    if (!meta.url) return res.status(404).send('Media not found or expired.');
+
+    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}` } });
+    const buf = Buffer.from(await fileRes.arrayBuffer());
+    res.set('Content-Type', meta.mime_type || 'application/octet-stream');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).send('Media fetch failed.');
+  }
+});
+
+// Creates a new WhatsApp message template (goes to Meta for approval —
+// usually minutes to a few hours before it can be used to message new numbers).
+app.post('/api/templates', async (req, res) => {
+  if (requireCredentials(res)) return;
+  if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
+    return res.status(500).json({ ok: false, error: 'WHATSAPP_BUSINESS_ACCOUNT_ID set nahi hai.' });
+  }
+  const { name, category, language, body: bodyText, footer } = req.body;
+  if (!name || !/^[a-z0-9_]+$/.test(name)) {
+    return res.status(400).json({ ok: false, error: 'Template name sirf lowercase letters, numbers, underscore me ho.' });
+  }
+  if (!bodyText || !bodyText.trim()) {
+    return res.status(400).json({ ok: false, error: 'Template body zaroori hai.' });
+  }
+
+  const varMatches = [...new Set((bodyText.match(/{{\d+}}/g) || []))].sort();
+  const components = [
+    {
+      type: 'BODY',
+      text: bodyText,
+      ...(varMatches.length
+        ? { example: { body_text: [varMatches.map((_, i) => `Example${i + 1}`)] } }
+        : {}),
+    },
+  ];
+  if (footer && footer.trim()) components.push({ type: 'FOOTER', text: footer.trim() });
+
+  try {
+    const apiRes = await fetch(`${GRAPH_BASE}/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}` },
+      body: JSON.stringify({
+        name,
+        language: language || 'en_US',
+        category: category || 'MARKETING',
+        components,
+      }),
+    });
+    const data = await apiRes.json();
+    if (!apiRes.ok) {
+      return res.status(apiRes.status).json({ ok: false, error: data.error?.message || 'Template create fail hua.' });
+    }
+    res.json({ ok: true, template: data });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Meta calls this with a GET request once, to verify we own this endpoint.
@@ -275,22 +401,41 @@ app.post('/api/webhook', async (req, res) => {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     const messages = value?.messages || [];
     const contacts = value?.contacts || [];
+    const statuses = value?.statuses || [];
 
     for (const msg of messages) {
       const contact = contacts.find((c) => c.wa_id === msg.from);
       let body;
+      let mediaId;
+      let mimeType;
       if (msg.type === 'text') body = msg.text?.body || '';
       else if (msg.type === 'button') body = msg.button?.text || '';
       else if (msg.type === 'interactive') {
         body = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || `[${msg.type}]`;
+      } else if (['image', 'document', 'video', 'audio', 'sticker'].includes(msg.type)) {
+        const media = msg[msg.type];
+        mediaId = media?.id;
+        mimeType = media?.mime_type;
+        body = media?.caption || media?.filename || `[${msg.type}]`;
       } else body = `[${msg.type}]`;
 
       await logMessage({
+        id: msg.id,
         direction: 'received',
         number: msg.from,
         name: contact?.profile?.name || '',
         type: msg.type,
         body,
+        mediaId,
+        mimeType,
+      });
+    }
+
+    // Delivery-status callbacks (sent/delivered/read/failed) for messages we sent.
+    for (const s of statuses) {
+      await updateMessageStatus(s.id, s.status, {
+        statusTimestamp: s.timestamp ? Number(s.timestamp) * 1000 : Date.now(),
+        error: s.errors?.[0]?.title,
       });
     }
   } catch (err) {

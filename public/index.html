@@ -1,145 +1,336 @@
 <!doctype html>
-<html lang="hi">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>leelainfra.in — WhatsApp Sender</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Leela Infra Solution — WhatsApp Business</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <span class="brand-icon" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
-          <path d="M16 3C9.1 3 3.5 8.4 3.5 15c0 2.4.7 4.6 1.9 6.5L4 29l7.8-1.3c1.3.4 2.7.6 4.2.6 6.9 0 12.5-5.4 12.5-12s-5.6-12.5-12.5-12.5z" fill="currentColor"/>
-        </svg>
-      </span>
-      <div>
-        <h1>leelainfra.in</h1>
-        <p class="subtitle">WhatsApp Business Sender</p>
+
+<div class="app-shell" id="appShell">
+
+  <!-- ============ Sidebar (desktop) ============ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-mark">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      </div>
+      <div class="sidebar-brand-text">
+        <strong>Leela Infra Solution</strong>
+        <span>Business Messaging</span>
       </div>
     </div>
-  </header>
 
-  <main>
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="template">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h8M8 9h2"/></svg>
-        <span>Template</span>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Workspace</div>
+      <button class="nav-item" data-view="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        <span>Dashboard</span>
       </button>
-      <button class="tab-btn" data-tab="text">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-        <span>Text</span>
-      </button>
-      <button class="tab-btn" data-tab="media">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-        <span>Media</span>
-      </button>
-      <button class="tab-btn" data-tab="inbox">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+      <button class="nav-item" data-view="inbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>Inbox</span>
+        <span class="nav-badge" id="inboxNavBadge" hidden>0</span>
       </button>
-    </div>
+      <button class="nav-item" data-view="send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+        <span>Send Message</span>
+      </button>
+      <button class="nav-item" data-view="templates">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h8M8 9h2"/></svg>
+        <span>Templates</span>
+      </button>
 
-    <section id="tab-template" class="tab-panel active">
-      <p class="hint">Naye ya cold numbers ko pehli baar message bhejne ke liye — Meta Business Manager par approved template zaroori hai.</p>
-      <form id="templateForm">
-        <label>Template Name
-          <input type="text" name="templateName" placeholder="e.g. order_update" required />
-        </label>
-        <label>Language Code
-          <input type="text" name="language" placeholder="en_US" value="en_US" />
-        </label>
-        <label>Template Variables (agar template me {{1}}, {{2}} hai to yaha comma-separated values)
-          <input type="text" name="variables" placeholder="e.g. Govind,Order#1234" />
-        </label>
-        <label>Recipients (ek number per line, ya comma se alag — country code ke saath, jaise 9198xxxxxxx)
-          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
-        </label>
-        <p class="recipient-info warn" id="templateRecipientInfo">0 number(s) ko bheja jaayega</p>
-        <label class="file-label">Ya CSV file upload karo (phone numbers column)
-          <input type="file" id="templateCsv" accept=".csv,.txt" />
-        </label>
-        <p class="csv-feedback" id="templateCsvFeedback"></p>
-        <div class="form-actions">
-          <button type="submit">Send Template Message</button>
-          <button type="button" class="btn-secondary" data-reset="templateForm">Clear</button>
-        </div>
-      </form>
-      <div id="templateResult" class="result"></div>
-    </section>
+      <div class="sidebar-section-label">Business</div>
+      <button class="nav-item" data-view="contacts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Contacts</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
 
-    <section id="tab-text" class="tab-panel">
-      <p class="hint">Sirf un numbers ko jinhone last 24 ghante me aapke WhatsApp business number par message kiya ho, warna WhatsApp ye message deliver nahi karega.</p>
-      <form id="textForm">
-        <label>Message
-          <textarea name="message" rows="5" maxlength="4096" placeholder="Apna message yaha likho..." required></textarea>
-        </label>
-        <p class="char-count" id="textCharCount">0 / 4096 characters</p>
-        <label>Recipients (ek number per line, ya comma se alag)
-          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
-        </label>
-        <p class="recipient-info warn" id="textRecipientInfo">0 number(s) ko bheja jaayega</p>
-        <label class="file-label">Ya CSV file upload karo (phone numbers column)
-          <input type="file" id="textCsv" accept=".csv,.txt" />
-        </label>
-        <p class="csv-feedback" id="textCsvFeedback"></p>
-        <div class="form-actions">
-          <button type="submit">Send Message</button>
-          <button type="button" class="btn-secondary" data-reset="textForm">Clear</button>
-        </div>
-      </form>
-      <div id="textResult" class="result"></div>
-    </section>
-
-    <section id="tab-media" class="tab-panel">
-      <p class="hint">Image, document ya video bhejne ke liye — file upload karo ya public URL do. File upload sirf tab kaam karega jab app deploy ho (public URL ke bina Meta ke servers file fetch nahi kar payenge). Sirf active 24-hour session wale numbers ko deliver hoga.</p>
-      <form id="mediaForm">
-        <label>Media Type
-          <select name="mediaType">
-            <option value="image">Image</option>
-            <option value="document">Document</option>
-            <option value="video">Video</option>
-            <option value="audio">Audio</option>
-          </select>
-        </label>
-        <label>File Upload
-          <input type="file" id="mediaFile" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" />
-        </label>
-        <p class="csv-feedback" id="mediaFileFeedback"></p>
-        <label>...ya seedha Media URL paste karo
-          <input type="text" name="mediaUrl" id="mediaUrlInput" placeholder="https://example.com/file.jpg" />
-        </label>
-        <button type="button" id="clearMediaBtn" class="btn-link" hidden>✕ File hataao, URL khud likhna hai</button>
-        <label>Caption (optional)
-          <input type="text" name="caption" placeholder="Message ke saath caption" />
-        </label>
-        <label>Recipients (ek number per line, ya comma se alag)
-          <textarea name="numbersText" rows="6" placeholder="919876543210&#10;919812345678" required></textarea>
-        </label>
-        <p class="recipient-info warn" id="mediaRecipientInfo">0 number(s) ko bheja jaayega</p>
-        <label class="file-label">Ya CSV file upload karo (phone numbers column)
-          <input type="file" id="mediaCsv" accept=".csv,.txt" />
-        </label>
-        <p class="csv-feedback" id="mediaCsvFeedback"></p>
-        <div class="form-actions">
-          <button type="submit">Send Media Message</button>
-          <button type="button" class="btn-secondary" data-reset="mediaForm">Clear</button>
-        </div>
-      </form>
-      <div id="mediaResult" class="result"></div>
-    </section>
-
-    <section id="tab-inbox" class="tab-panel">
-      <p class="hint">Sab bheje gaye aur customer ke replies yaha dikhte hain. Naye replies dekhne ke liye Webhook setup zaroori hai (Meta Developers app me).</p>
-      <div class="inbox-toolbar">
-        <button type="button" id="refreshInboxBtn" class="btn-secondary">↻ Refresh</button>
-        <span class="inbox-status" id="inboxStatus"></span>
+    <div class="sidebar-footer">
+      <span class="status-dot" id="connStatusDot"></span>
+      <div class="sidebar-footer-text">
+        <strong id="connNumberText">+91 86521 67829</strong>
+        <span>WhatsApp Business</span>
       </div>
-      <div id="inboxList" class="inbox-list"></div>
-    </section>
-  </main>
+    </div>
+  </aside>
 
-  <script src="/app.js"></script>
+  <!-- ============ Main column ============ -->
+  <div class="main-col">
+    <header class="topbar">
+      <div>
+        <div class="topbar-title" id="topbarTitle">Dashboard</div>
+        <div class="topbar-subtitle" id="topbarSubtitle">Aapke WhatsApp business ka overview</div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <button class="icon-btn" id="topbarRefreshBtn" title="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+      </button>
+    </header>
+
+    <main class="main-content">
+
+      <!-- ===================== DASHBOARD ===================== -->
+      <section class="view" data-view="dashboard">
+        <div class="kpi-grid" id="kpiGrid"></div>
+
+        <div class="quick-actions">
+          <button class="quick-action" data-action="goto-send-normal">
+            <span class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg></span>
+            <strong>Send Message</strong>
+          </button>
+          <button class="quick-action" data-action="goto-send-template">
+            <span class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg></span>
+            <strong>Send Template</strong>
+          </button>
+          <button class="quick-action" data-action="goto-inbox">
+            <span class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            <strong>Open Inbox</strong>
+          </button>
+          <button class="quick-action" data-action="goto-templates-new">
+            <span class="qa-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
+            <strong>Create Template</strong>
+          </button>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card card-pad">
+            <div class="section-heading">
+              <div>
+                <h2>Last 7 days</h2>
+                <p>Sent vs. received messages</p>
+              </div>
+            </div>
+            <div class="chart-bars" id="chartBars"></div>
+            <div class="legend">
+              <span class="legend-item"><span class="legend-dot" style="background:var(--charcoal-800)"></span> Sent</span>
+              <span class="legend-item"><span class="legend-dot" style="background:var(--accent)"></span> Received</span>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <div class="section-heading">
+              <div>
+                <h2>Recent activity</h2>
+              </div>
+            </div>
+            <div id="recentActivityList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SEND ===================== -->
+      <section class="view" data-view="send">
+        <div class="card card-pad">
+          <div class="wizard-progress" id="wizardProgress"></div>
+
+          <!-- Step 1: Recipients -->
+          <div class="wizard-panel" data-step="1">
+            <div class="section-heading"><div><h2>Kise bhejna hai?</h2><p>Ek ya zyada numbers daalo, country code ke saath</p></div></div>
+            <div class="field">
+              <label>Recipients</label>
+              <textarea class="input" id="sendNumbers" rows="5" placeholder="919876543210&#10;919812345678"></textarea>
+            </div>
+            <span class="recipient-pill-count" id="sendRecipientCount">0 number(s) selected</span>
+            <div class="field" style="margin-top:16px;">
+              <label>Ya CSV/text file upload karo</label>
+              <label class="upload-drop" style="display:block;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+                <strong>Click to upload CSV / TXT</strong>
+                <span id="sendCsvFeedback">Phone numbers column ke saath</span>
+                <input type="file" id="sendCsvInput" accept=".csv,.txt" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 2: Message type -->
+          <div class="wizard-panel" data-step="2">
+            <div class="section-heading"><div><h2>Message type chuno</h2><p>Naye numbers ke liye Template zaroori hai</p></div></div>
+            <div class="choice-row">
+              <div class="choice-card" data-type="text">
+                <span class="choice-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                <strong>Normal Message</strong>
+                <span>Sirf un numbers ko jinhone 24 ghante me message kiya ho</span>
+              </div>
+              <div class="choice-card" data-type="template">
+                <span class="choice-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg></span>
+                <strong>Template Message</strong>
+                <span>Fresh/unknown numbers ko bhi bhej sakte ho</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Compose (text) -->
+          <div class="wizard-panel" data-step="3-text">
+            <div class="section-heading"><div><h2>Message likho</h2></div></div>
+            <div class="field">
+              <textarea class="input" id="composeText" rows="5" maxlength="4096" placeholder="Apna message yaha likho..."></textarea>
+            </div>
+            <div class="char-counter" id="composeTextCount">0 / 4096</div>
+
+            <div class="field" style="margin-top:18px;">
+              <label>Attachment (optional)</label>
+              <label class="upload-drop" id="sendMediaDrop" style="display:block;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                <strong>Image, video ya document attach karo</strong>
+                <span>Click ya drag-and-drop karo</span>
+                <input type="file" id="sendMediaInput" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" />
+              </label>
+              <div class="attach-preview" id="sendMediaPreview" hidden></div>
+              <div class="field" id="sendMediaCaptionField" style="margin-top:10px;" hidden>
+                <label>Caption (optional)</label>
+                <input class="input" id="sendMediaCaption" placeholder="Message ke saath caption" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Compose (template) -->
+          <div class="wizard-panel" data-step="3-template">
+            <div class="section-heading"><div><h2>Template chuno</h2><p>Sirf approved templates hi use ho sakte hain</p></div></div>
+            <div id="sendTemplatePicker" class="template-grid"></div>
+            <div id="sendTemplateVarsWrap" style="margin-top:18px;" hidden>
+              <div class="section-heading"><div><h2>Variables bharo</h2></div></div>
+              <div id="sendTemplateVars"></div>
+            </div>
+          </div>
+
+          <!-- Step 4: Preview -->
+          <div class="wizard-panel" data-step="4">
+            <div class="section-heading"><div><h2>Preview &amp; Send</h2><p>Exactly aisa hi dikhega customer ko</p></div></div>
+            <div class="phone-preview-wrap">
+              <div class="phone-preview">
+                <div class="phone-preview-header">
+                  <strong>Leela Infra Solution</strong>
+                  <span id="previewRecipientCount">0 recipients</span>
+                </div>
+                <div id="previewBubble"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 5: Result -->
+          <div class="wizard-panel" data-step="5">
+            <div class="section-heading"><div><h2>Sending...</h2></div></div>
+            <div id="sendResultArea"></div>
+          </div>
+
+          <div class="wizard-actions">
+            <button class="btn btn-secondary" id="wizardBackBtn">Back</button>
+            <button class="btn btn-primary" id="wizardNextBtn">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== TEMPLATES ===================== -->
+      <section class="view" data-view="templates">
+        <div class="section-heading">
+          <div><h2>Templates</h2><p>Approved templates fresh numbers ko message bhej sakte hain</p></div>
+          <button class="btn btn-primary" id="newTemplateBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            New Template
+          </button>
+        </div>
+        <div class="template-grid" id="templatesGrid"></div>
+      </section>
+
+      <!-- ===================== CONTACTS ===================== -->
+      <section class="view" data-view="contacts">
+        <div class="section-heading">
+          <div><h2>Contacts</h2><p>Un numbers ki list jinse conversation hui hai</p></div>
+        </div>
+        <div class="contact-table" id="contactsTable"></div>
+      </section>
+
+      <!-- ===================== SETTINGS ===================== -->
+      <section class="view" data-view="settings">
+        <div class="section-heading"><div><h2>Settings</h2><p>Connection aur account details</p></div></div>
+        <div class="settings-grid">
+          <div class="card card-pad">
+            <div class="section-heading"><div><h2 style="font-size:13.5px;">WhatsApp Business Account</h2></div></div>
+            <div class="settings-row"><span class="settings-row-label">Business</span><span class="settings-row-value" id="settingsBusinessName">Leela Infra Solution</span></div>
+            <div class="settings-row"><span class="settings-row-label">Phone number</span><span class="settings-row-value" id="settingsPhone">—</span></div>
+            <div class="settings-row"><span class="settings-row-label">WABA ID</span><span class="settings-row-value" id="settingsWabaId">—</span></div>
+            <div class="settings-row"><span class="settings-row-label">Status</span><span class="badge badge-green">Connected</span></div>
+          </div>
+          <div class="card card-pad">
+            <div class="section-heading"><div><h2 style="font-size:13.5px;">Manage</h2></div></div>
+            <p style="font-size:12.5px;color:var(--ink-muted);margin:0 0 14px;">Phone number, webhook aur billing Meta Business Manager se manage hote hain.</p>
+            <a class="btn btn-secondary btn-block" href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener">Open WhatsApp Manager</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== INBOX ===================== -->
+      <section class="view" data-view="inbox">
+        <div class="inbox-layout">
+          <div class="conv-list-pane">
+            <div class="conv-search">
+              <div class="conv-search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="input" id="convSearchInput" placeholder="Search conversations..." />
+              </div>
+            </div>
+            <div class="conv-list" id="convList"></div>
+          </div>
+
+          <div class="thread-pane" id="threadPane">
+            <div class="empty-state" id="threadEmptyState" style="margin:auto;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <strong>Koi conversation select karo</strong>
+              <span>Left se ek contact chuno chat dekhne ke liye</span>
+            </div>
+          </div>
+
+          <div class="info-pane" id="infoPane" hidden></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ============ Bottom nav (mobile) ============ -->
+<nav class="bottom-nav">
+  <div class="bottom-nav-inner">
+    <button class="bottom-nav-item" data-view="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="bottom-nav-item" data-view="inbox">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Inbox</span>
+    </button>
+    <button class="bottom-nav-item fab-item" data-view="send">
+      <span class="bottom-nav-fab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+      </span>
+      <span>Send</span>
+    </button>
+    <button class="bottom-nav-item" data-view="templates">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+      <span>Templates</span>
+    </button>
+    <button class="bottom-nav-item" data-view="contacts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Contacts</span>
+    </button>
+  </div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<!-- Hidden template for "New Template" flow, injected via JS into templates view -->
+
+<script src="/app.js"></script>
 </body>
 </html>

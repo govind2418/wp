@@ -1,83 +1,69 @@
-// Tabs
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'inbox') loadInbox();
-  });
-});
-
-// Inbox: shows both sent messages and customer replies, newest first.
-let inboxPollTimer = null;
-
-function formatInboxTime(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  return sameDay ? time : `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
-}
-
-function renderInbox(messages) {
-  const listEl = document.getElementById('inboxList');
-  if (!listEl) return;
-
-  if (!messages.length) {
-    listEl.innerHTML = '<p class="inbox-empty">Abhi tak koi message nahi hai.</p>';
-    return;
-  }
-
-  // Render oldest-first within the list so it reads top-to-bottom like a chat.
-  const ordered = [...messages].reverse();
-  listEl.innerHTML = ordered
-    .map((m) => {
-      const failed = m.direction === 'sent' && m.ok === false;
-      const label = m.direction === 'sent' ? 'Sent →' : `← ${m.name || m.number}`;
-      const failTag = failed ? ' <span class="fail-tag">✕ failed</span>' : '';
-      return `
-        <div class="inbox-msg ${m.direction}${failed ? ' failed' : ''}">
-          <div class="inbox-meta"><span>${label} · ${m.number}</span><span>${formatInboxTime(m.timestamp)}${failTag}</span></div>
-          <div class="inbox-body">${escapeHtml(m.body || '')}</div>
-        </div>
-      `;
-    })
-    .join('');
-  listEl.scrollTop = listEl.scrollHeight;
-}
-
+/* ============================================================
+   Utilities
+   ============================================================ */
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
 }
 
-async function loadInbox() {
-  const statusEl = document.getElementById('inboxStatus');
-  try {
-    const res = await fetch('/api/messages');
-    const data = await res.json();
-    if (data.warning && statusEl) statusEl.textContent = data.warning;
-    else if (statusEl) statusEl.textContent = `${data.messages.length} message(s)`;
-    renderInbox(data.messages || []);
-  } catch (err) {
-    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+function initials(name, number) {
+  const src = (name || '').trim();
+  if (src) {
+    const parts = src.split(/\s+/).filter(Boolean);
+    return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?';
   }
+  const digits = (number || '').replace(/\D/g, '');
+  return digits ? digits.slice(-2) : '?';
 }
 
-document.getElementById('refreshInboxBtn')?.addEventListener('click', loadInbox);
+function formatClock(ts) {
+  return new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
 
-// Poll every 10s so new replies show up without a manual refresh, but only
-// while the Inbox tab is actually visible.
-setInterval(() => {
-  const inboxTab = document.getElementById('tab-inbox');
-  if (inboxTab && inboxTab.classList.contains('active')) loadInbox();
-}, 10000);
+function formatDayLabel(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
 
-// Parses recipient text the same way the server does (newline/comma separated,
-// digits only, 10+ chars), plus dedupes and reports invalid/duplicate counts
-// so the user can see exactly who will receive the message before sending.
+function relativeTime(ts) {
+  const diff = Date.now() - ts;
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+function displayNumber(num) {
+  const n = String(num || '');
+  if (n.length > 8) return `+${n.slice(0, n.length - 10)} ${n.slice(-10, -5)} ${n.slice(-5)}`.trim();
+  return n;
+}
+
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = 'toast'; }, 3200);
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  let data;
+  try { data = await res.json(); } catch { data = { ok: false, error: 'Invalid server response' }; }
+  return data;
+}
+
 function parseNumbersClient(text) {
   if (!text) return { valid: [], invalidCount: 0, duplicateCount: 0 };
   const rawEntries = text.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
@@ -89,310 +75,850 @@ function parseNumbersClient(text) {
   return { valid: uniqueValid, invalidCount, duplicateCount };
 }
 
-function updateRecipientInfo(textarea, infoEl) {
-  if (!textarea || !infoEl) return;
-  const { valid, invalidCount, duplicateCount } = parseNumbersClient(textarea.value);
-  let msg = `${valid.length} number${valid.length === 1 ? '' : 's'} ko bheja jaayega`;
-  const extras = [];
-  if (invalidCount > 0) extras.push(`${invalidCount} ignore hue (invalid)`);
-  if (duplicateCount > 0) extras.push(`${duplicateCount} duplicate hataye`);
-  if (extras.length) msg += ` — ${extras.join(', ')}`;
-  infoEl.textContent = msg;
-  infoEl.classList.toggle('warn', valid.length === 0);
+const ICONS = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  doubleCheck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m2 12 4 4 8-9"/><path d="m8 16 4 4 10-11"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+  smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+};
+
+/* ============================================================
+   Global state
+   ============================================================ */
+const state = {
+  messages: [],
+  templates: [],
+  config: null,
+  currentView: 'dashboard',
+  activeConversation: null,
+  send: {
+    step: 1,
+    numbers: [],
+    type: null, // 'text' | 'template'
+    mediaUrl: null,
+    mediaMime: null,
+    mediaName: null,
+    template: null,
+    templateVars: {},
+    sending: false,
+  },
+};
+
+/* ============================================================
+   Navigation
+   ============================================================ */
+const VIEW_META = {
+  dashboard: { title: 'Dashboard', subtitle: 'Aapke WhatsApp business ka overview' },
+  inbox: { title: 'Inbox', subtitle: 'Sent aur received sab ek jagah' },
+  send: { title: 'Send Message', subtitle: 'Step-by-step message bhejo' },
+  templates: { title: 'Templates', subtitle: 'Approved templates fresh numbers ke liye' },
+  contacts: { title: 'Contacts', subtitle: 'Un numbers ki list jinse baat hui hai' },
+  settings: { title: 'Settings', subtitle: 'Connection aur account details' },
+};
+
+function goToView(view) {
+  state.currentView = view;
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === view));
+  document.querySelectorAll('.nav-item[data-view]').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
+  document.querySelectorAll('.bottom-nav-item[data-view]').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
+  const meta = VIEW_META[view] || {};
+  document.getElementById('topbarTitle').textContent = meta.title || '';
+  document.getElementById('topbarSubtitle').textContent = meta.subtitle || '';
+  document.getElementById('appShell').classList.remove('inbox-open');
+
+  if (view === 'dashboard') renderDashboard();
+  if (view === 'inbox') renderConversationList();
+  if (view === 'templates') renderTemplatesView();
+  if (view === 'contacts') renderContacts();
+  if (view === 'settings') renderSettings();
+  if (view === 'send' && state.send.step === 1) renderWizard();
+
+  window.scrollTo(0, 0);
 }
 
-function wireRecipientCounter(textareaSelector, infoId) {
-  const textarea = document.querySelector(textareaSelector);
-  const infoEl = document.getElementById(infoId);
-  if (!textarea || !infoEl) return;
-  textarea.addEventListener('input', () => updateRecipientInfo(textarea, infoEl));
-  updateRecipientInfo(textarea, infoEl);
-}
+document.querySelectorAll('.nav-item[data-view], .bottom-nav-item[data-view]').forEach((el) => {
+  el.addEventListener('click', () => goToView(el.dataset.view));
+});
 
-wireRecipientCounter('#templateForm textarea[name="numbersText"]', 'templateRecipientInfo');
-wireRecipientCounter('#textForm textarea[name="numbersText"]', 'textRecipientInfo');
-wireRecipientCounter('#mediaForm textarea[name="numbersText"]', 'mediaRecipientInfo');
-
-// Message character counter (Text tab)
-const messageTextarea = document.querySelector('#textForm textarea[name="message"]');
-const charCountEl = document.getElementById('textCharCount');
-if (messageTextarea && charCountEl) {
-  const updateCharCount = () => {
-    charCountEl.textContent = `${messageTextarea.value.length} / 4096 characters`;
-  };
-  messageTextarea.addEventListener('input', updateCharCount);
-  updateCharCount();
-}
-
-// CSV/text upload: pulls phone-number-looking cells out of the file, merges
-// them with whatever's already typed (deduped), and tells the user what changed.
-function wireCsvUpload(inputId, textareaSelector, feedbackId, infoId) {
-  const input = document.getElementById(inputId);
-  const textarea = document.querySelector(textareaSelector);
-  const feedbackEl = document.getElementById(feedbackId);
-  const infoEl = document.getElementById(infoId);
-  if (!input || !textarea) return;
-
-  input.addEventListener('change', async () => {
-    const file = input.files[0];
-    if (!file) return;
-
-    const text = await file.text();
-    const { valid: fromCsv } = parseNumbersClient(text);
-    const { valid: existing } = parseNumbersClient(textarea.value);
-    const merged = [...new Set([...existing, ...fromCsv])];
-    const added = merged.length - existing.length;
-
-    textarea.value = merged.join('\n');
-    updateRecipientInfo(textarea, infoEl);
-
-    if (feedbackEl) {
-      if (added > 0) {
-        feedbackEl.textContent = `✓ CSV se ${added} naya number add hua.`;
-      } else if (fromCsv.length > 0) {
-        feedbackEl.textContent = 'Ye saare numbers pehle se list me hain.';
-      } else {
-        feedbackEl.textContent = 'CSV me koi valid phone number nahi mila.';
-      }
-    }
-    input.value = ''; // allow re-selecting the same file later
+document.querySelectorAll('[data-action]').forEach((el) => {
+  el.addEventListener('click', () => {
+    const action = el.dataset.action;
+    if (action === 'goto-send-normal') { resetWizard(); state.send.type = 'text'; goToView('send'); }
+    else if (action === 'goto-send-template') { resetWizard(); state.send.type = 'template'; goToView('send'); }
+    else if (action === 'goto-inbox') goToView('inbox');
+    else if (action === 'goto-templates-new') { goToView('templates'); openTemplateForm(); }
   });
-}
+});
 
-wireCsvUpload('templateCsv', '#templateForm textarea[name="numbersText"]', 'templateCsvFeedback', 'templateRecipientInfo');
-wireCsvUpload('textCsv', '#textForm textarea[name="numbersText"]', 'textCsvFeedback', 'textRecipientInfo');
-wireCsvUpload('mediaCsv', '#mediaForm textarea[name="numbersText"]', 'mediaCsvFeedback', 'mediaRecipientInfo');
+document.getElementById('topbarRefreshBtn').addEventListener('click', () => loadAll(true));
 
-// Media file -> upload to server -> fill the URL field automatically.
-// Once a file is uploaded, the URL field is locked (file and URL are
-// mutually exclusive) until the user explicitly removes the file.
-let uploadedMediaMime = '';
-const mediaFileInput = document.getElementById('mediaFile');
-const mediaUrlInput = document.getElementById('mediaUrlInput');
-const mediaFileFeedback = document.getElementById('mediaFileFeedback');
-const clearMediaBtn = document.getElementById('clearMediaBtn');
+/* ============================================================
+   Data loading
+   ============================================================ */
+async function loadAll(showToastOnDone) {
+  const [msgRes, tplRes, cfgRes] = await Promise.all([
+    api('/api/messages'),
+    api('/api/templates'),
+    api('/api/config'),
+  ]);
+  if (msgRes.ok) state.messages = msgRes.messages || [];
+  if (tplRes.ok) state.templates = tplRes.templates || [];
+  if (cfgRes.ok) state.config = cfgRes;
 
-if (mediaFileInput) {
-  mediaFileInput.addEventListener('change', async () => {
-    const file = mediaFileInput.files[0];
-    if (!file) return;
-    const mediaResultEl = document.getElementById('mediaResult');
-    mediaUrlInput.value = 'Upload ho raha hai...';
-    mediaUrlInput.readOnly = true;
-    if (mediaFileFeedback) mediaFileFeedback.textContent = '';
-    const fd = new FormData();
-    fd.append('file', file);
-    try {
-      const res = await fetch('/api/upload-media', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.ok) {
-        mediaUrlInput.value = data.url;
-        uploadedMediaMime = data.mimetype;
-        if (mediaFileFeedback) mediaFileFeedback.textContent = `✓ "${file.name}" upload ho gayi.`;
-        if (clearMediaBtn) clearMediaBtn.hidden = false;
-      } else {
-        mediaUrlInput.value = '';
-        mediaUrlInput.readOnly = false;
-        showResult(mediaResultEl, false, `Upload error: ${data.error}`);
-      }
-    } catch (err) {
-      mediaUrlInput.value = '';
-      mediaUrlInput.readOnly = false;
-      showResult(mediaResultEl, false, `Upload error: ${err.message}`);
-    }
-  });
-}
+  const unreadCount = getConversations().filter((c) => c.awaitingReply).length;
+  const badge = document.getElementById('inboxNavBadge');
+  if (unreadCount > 0) { badge.hidden = false; badge.textContent = unreadCount; } else badge.hidden = true;
 
-if (clearMediaBtn) {
-  clearMediaBtn.addEventListener('click', () => {
-    mediaFileInput.value = '';
-    mediaUrlInput.value = '';
-    mediaUrlInput.readOnly = false;
-    uploadedMediaMime = '';
-    clearMediaBtn.hidden = true;
-    if (mediaFileFeedback) mediaFileFeedback.textContent = '';
-  });
-}
-
-function showResult(el, ok, text) {
-  el.textContent = text;
-  el.className = 'result ' + (ok ? 'success' : 'error');
-  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function formatFailedList(failed) {
-  return (failed || [])
-    .map((f) => `✕ ${f.to}: ${f.error || (f.data && (f.data.error?.message || JSON.stringify(f.data))) || 'Unknown error'}`)
-    .join('\n');
-}
-
-// Disables every input/button in a form while a send is in progress, and
-// restores their previous state afterwards (so nothing can be double-submitted).
-function setFormBusy(form, busy) {
-  form.querySelectorAll('input, textarea, select, button').forEach((el) => {
-    if (busy) {
-      el.dataset.wasDisabled = el.disabled ? '1' : '0';
-      el.disabled = true;
-    } else if (el.dataset.wasDisabled !== undefined) {
-      el.disabled = el.dataset.wasDisabled === '1';
-      delete el.dataset.wasDisabled;
-    }
-  });
-}
-
-document.getElementById('templateForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const resultEl = document.getElementById('templateResult');
-  const fd = new FormData(form);
-  const { valid: recipients } = parseNumbersClient(fd.get('numbersText'));
-
-  if (recipients.length === 0) {
-    showResult(resultEl, false, 'Kam se kam ek valid phone number do.');
-    return;
+  if (state.currentView === 'dashboard') renderDashboard();
+  if (state.currentView === 'inbox') {
+    renderConversationList();
+    if (state.activeConversation) renderThread(state.activeConversation);
   }
-  if (!confirm(`${recipients.length} number(s) ko template message bheja jaayega. Confirm karein?`)) {
-    return;
+  if (state.currentView === 'contacts') renderContacts();
+
+  if (cfgRes.ok) {
+    document.getElementById('connStatusDot').classList.toggle('offline', !cfgRes.connected);
   }
 
-  setFormBusy(form, true);
-  showResult(resultEl, true, 'Bhej raha hoon...');
+  if (showToastOnDone) toast('Refreshed', 'success');
+}
 
-  const payload = {
-    templateName: fd.get('templateName'),
-    language: fd.get('language'),
-    variables: (fd.get('variables') || '').split(',').map((v) => v.trim()).filter(Boolean),
-    numbersText: recipients.join('\n'),
-  };
+setInterval(() => loadAll(false), 12000);
+loadAll(false);
 
+/* ============================================================
+   Conversation helpers (shared by Dashboard / Inbox / Contacts)
+   ============================================================ */
+function getConversations() {
+  const byNumber = new Map();
+  // messages come newest-first
+  for (const m of state.messages) {
+    if (!byNumber.has(m.number)) {
+      byNumber.set(m.number, { number: m.number, name: '', messages: [], lastTimestamp: 0 });
+    }
+    const conv = byNumber.get(m.number);
+    conv.messages.push(m);
+    if (m.direction === 'received' && m.name && !conv.name) conv.name = m.name;
+    if (m.timestamp > conv.lastTimestamp) conv.lastTimestamp = m.timestamp;
+  }
+  const list = [...byNumber.values()].map((c) => {
+    const sorted = [...c.messages].sort((a, b) => b.timestamp - a.timestamp);
+    const last = sorted[0];
+    return {
+      ...c,
+      lastMessage: last,
+      awaitingReply: last?.direction === 'received',
+    };
+  });
+  list.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+  return list;
+}
+
+/* ============================================================
+   Dashboard
+   ============================================================ */
+function renderDashboard() {
+  const msgs = state.messages;
+  const sent = msgs.filter((m) => m.direction === 'sent');
+  const received = msgs.filter((m) => m.direction === 'received');
+  const delivered = sent.filter((m) => m.status === 'delivered' || m.status === 'read');
+  const read = sent.filter((m) => m.status === 'read');
+  const failed = sent.filter((m) => m.status === 'failed' || m.ok === false);
+  const conversations = getConversations();
+  const approvedTemplates = state.templates.filter((t) => t.status === 'APPROVED');
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const todayCount = msgs.filter((m) => m.timestamp >= todayStart.getTime()).length;
+
+  const kpis = [
+    { label: 'Messages Sent', value: sent.length, icon: ICONS.send, color: 'dark' },
+    { label: 'Delivered', value: delivered.length, icon: ICONS.doubleCheck, color: 'blue' },
+    { label: 'Read', value: read.length, icon: ICONS.doubleCheck, color: 'green' },
+    { label: 'Failed', value: failed.length, icon: ICONS.alert, color: 'red' },
+    { label: 'Active Conversations', value: conversations.length, icon: ICONS.inbox, color: 'green' },
+    { label: 'Approved Templates', value: approvedTemplates.length, icon: ICONS.doc, color: 'amber' },
+    { label: 'Replies Received', value: received.length, icon: ICONS.inbox, color: 'blue' },
+    { label: "Today's Activity", value: todayCount, icon: ICONS.clock, color: 'dark' },
+  ];
+
+  document.getElementById('kpiGrid').innerHTML = kpis.map((k) => `
+    <div class="kpi-card">
+      <div class="kpi-icon ${k.color}">${k.icon}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-label">${k.label}</div>
+    </div>
+  `).join('');
+
+  // 7-day chart
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    days.push({ start: d.getTime(), end: d.getTime() + 86400000, label: d.toLocaleDateString('en-IN', { weekday: 'short' }) });
+  }
+  const maxCount = Math.max(1, ...days.map((d) => msgs.filter((m) => m.timestamp >= d.start && m.timestamp < d.end).length));
+  document.getElementById('chartBars').innerHTML = days.map((d) => {
+    const daySent = msgs.filter((m) => m.direction === 'sent' && m.timestamp >= d.start && m.timestamp < d.end).length;
+    const dayRecv = msgs.filter((m) => m.direction === 'received' && m.timestamp >= d.start && m.timestamp < d.end).length;
+    const sentPct = (daySent / maxCount) * 100;
+    const recvPct = (dayRecv / maxCount) * 100;
+    return `
+      <div class="chart-col">
+        <div class="chart-bar-track">
+          <div class="chart-bar-seg sent" style="height:${sentPct}%"></div>
+          <div class="chart-bar-seg received" style="height:${recvPct}%"></div>
+        </div>
+        <span class="chart-col-label">${d.label}</span>
+      </div>
+    `;
+  }).join('');
+
+  // recent activity
+  const recent = msgs.slice(0, 8);
+  document.getElementById('recentActivityList').innerHTML = recent.length
+    ? recent.map((m) => `
+      <div class="activity-row">
+        <div class="activity-icon ${m.direction}">${m.direction === 'sent' ? ICONS.send : ICONS.inbox}</div>
+        <div class="activity-body">
+          <strong>${m.direction === 'sent' ? 'Sent to' : 'From'} ${escapeHtml(displayNumber(m.number))}</strong>
+          <span>${escapeHtml(m.body || '')}</span>
+        </div>
+        <div class="activity-time">${relativeTime(m.timestamp)}</div>
+      </div>
+    `).join('')
+    : `<div class="empty-state">${ICONS.inbox}<strong>Koi activity nahi</strong><span>Pehla message bhejo ya wait karo customer reply ka</span></div>`;
+}
+
+/* ============================================================
+   Send wizard
+   ============================================================ */
+const WIZARD_STEPS_TEXT = [
+  { key: 1, label: 'Recipients' },
+  { key: 2, label: 'Type' },
+  { key: '3-text', label: 'Compose' },
+  { key: 4, label: 'Preview' },
+];
+const WIZARD_STEPS_TEMPLATE = [
+  { key: 1, label: 'Recipients' },
+  { key: 2, label: 'Type' },
+  { key: '3-template', label: 'Template' },
+  { key: 4, label: 'Preview' },
+];
+
+function resetWizard() {
+  state.send = { step: 1, numbers: [], type: null, mediaUrl: null, mediaMime: null, mediaName: null, template: null, templateVars: {}, sending: false };
+  document.getElementById('sendNumbers').value = '';
+  document.getElementById('composeText').value = '';
+  document.getElementById('sendMediaPreview').hidden = true;
+  document.getElementById('sendMediaCaptionField').hidden = true;
+  document.getElementById('sendMediaCaption').value = '';
+  document.getElementById('sendMediaInput').value = '';
+  document.querySelectorAll('.choice-card').forEach((c) => c.classList.remove('selected'));
+  updateRecipientCount();
+}
+
+function currentSteps() {
+  return state.send.type === 'template' ? WIZARD_STEPS_TEMPLATE : WIZARD_STEPS_TEXT;
+}
+
+function renderWizard() {
+  const steps = currentSteps();
+  const currentIndex = steps.findIndex((s) => String(s.key) === String(state.send.step));
+
+  document.getElementById('wizardProgress').innerHTML = steps.map((s, i) => `
+    <div class="wizard-step ${i < currentIndex ? 'done' : ''} ${i === currentIndex ? 'current' : ''}">
+      <span class="dot">${i < currentIndex ? '✓' : i + 1}</span>
+      <span class="label">${s.label}</span>
+    </div>
+    ${i < steps.length - 1 ? `<div class="wizard-connector ${i < currentIndex ? 'done' : ''}"></div>` : ''}
+  `).join('');
+
+  document.querySelectorAll('.wizard-panel').forEach((p) => {
+    p.classList.toggle('active', String(p.dataset.step) === String(state.send.step));
+  });
+
+  const backBtn = document.getElementById('wizardBackBtn');
+  const nextBtn = document.getElementById('wizardNextBtn');
+  backBtn.style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
+
+  if (state.send.step === 4) {
+    nextBtn.textContent = state.send.sending ? 'Sending...' : 'Send Message';
+    nextBtn.disabled = state.send.sending;
+    renderPreview();
+  } else if (state.send.step === 5) {
+    backBtn.style.visibility = 'hidden';
+    nextBtn.textContent = 'Done — Send Another';
+    nextBtn.disabled = false;
+  } else {
+    nextBtn.textContent = 'Next';
+    nextBtn.disabled = false;
+  }
+
+  if (state.send.step === '3-template') renderTemplatePicker();
+}
+
+function updateRecipientCount() {
+  const { valid } = parseNumbersClient(document.getElementById('sendNumbers').value);
+  state.send.numbers = valid;
+  const el = document.getElementById('sendRecipientCount');
+  el.textContent = `${valid.length} number${valid.length === 1 ? '' : 's'} selected`;
+  el.classList.toggle('warn', valid.length === 0);
+}
+
+document.getElementById('sendNumbers').addEventListener('input', updateRecipientCount);
+
+document.getElementById('sendCsvInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const { valid: fromCsv } = parseNumbersClient(text);
+  const { valid: existing } = parseNumbersClient(document.getElementById('sendNumbers').value);
+  const merged = [...new Set([...existing, ...fromCsv])];
+  document.getElementById('sendNumbers').value = merged.join('\n');
+  document.getElementById('sendCsvFeedback').textContent = `✓ ${merged.length - existing.length} naya number add hua.`;
+  updateRecipientCount();
+  e.target.value = '';
+});
+
+document.querySelectorAll('.choice-card').forEach((card) => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.choice-card').forEach((c) => c.classList.remove('selected'));
+    card.classList.add('selected');
+    state.send.type = card.dataset.type;
+  });
+});
+
+document.getElementById('composeText').addEventListener('input', (e) => {
+  document.getElementById('composeTextCount').textContent = `${e.target.value.length} / 4096`;
+});
+
+document.getElementById('sendMediaInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const preview = document.getElementById('sendMediaPreview');
+  preview.hidden = false;
+  preview.innerHTML = `<span class="spinner spinner-dark"></span><span>Uploading ${escapeHtml(file.name)}...</span>`;
+  const fd = new FormData();
+  fd.append('file', file);
   try {
-    const res = await fetch('/api/send-template', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const res = await fetch('/api/upload-media', { method: 'POST', body: fd });
     const data = await res.json();
-    if (data.ok) {
-      showResult(resultEl, true, `✓ Bheja gaya ${data.sentTo} number(s) ko.`);
-    } else if (data.error) {
-      showResult(resultEl, false, `Error: ${data.error}`);
+    if (!data.ok) throw new Error(data.error || 'Upload failed');
+    state.send.mediaUrl = data.url;
+    state.send.mediaMime = data.mimetype;
+    state.send.mediaName = file.name;
+    const isImage = data.mimetype?.startsWith('image/');
+    preview.innerHTML = `
+      ${isImage ? `<img src="${data.url}" alt="" />` : `<span class="file-icon">${ICONS.doc}</span>`}
+      <div class="attach-preview-info"><strong>${escapeHtml(file.name)}</strong><span>Ready to send</span></div>
+      <button type="button" class="icon-btn" id="removeMediaBtn">✕</button>
+    `;
+    document.getElementById('removeMediaBtn').addEventListener('click', () => {
+      state.send.mediaUrl = null; state.send.mediaMime = null; state.send.mediaName = null;
+      preview.hidden = true; preview.innerHTML = '';
+      document.getElementById('sendMediaCaptionField').hidden = true;
+      document.getElementById('sendMediaInput').value = '';
+    });
+    document.getElementById('sendMediaCaptionField').hidden = false;
+  } catch (err) {
+    preview.innerHTML = `<span>✕ ${escapeHtml(err.message)}</span>`;
+  }
+});
+
+function renderTemplatePicker() {
+  const approved = state.templates.filter((t) => t.status === 'APPROVED');
+  const wrap = document.getElementById('sendTemplatePicker');
+  if (!approved.length) {
+    wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${ICONS.doc}<strong>Koi approved template nahi</strong><span>Templates page se ek template banao aur approval ka wait karo</span></div>`;
+    return;
+  }
+  wrap.innerHTML = approved.map((t, i) => `
+    <div class="template-card" data-tpl-index="${i}" style="${state.send.template?.name === t.name ? 'border-color:var(--accent);background:var(--accent-50);' : ''}">
+      <div class="template-card-head"><strong>${escapeHtml(t.name)}</strong>${state.send.template?.name === t.name ? `<span style="color:var(--accent-ink);">${ICONS.check}</span>` : ''}</div>
+      <div class="template-card-meta">
+        <span class="badge badge-green">Approved</span>
+        <span class="badge badge-gray">${escapeHtml(t.category || '')}</span>
+        <span class="badge badge-gray">${escapeHtml(t.language || '')}</span>
+      </div>
+      <div class="template-card-preview">${escapeHtml(templateBodyText(t))}</div>
+    </div>
+  `).join('');
+
+  wrap.querySelectorAll('.template-card').forEach((card, i) => {
+    card.addEventListener('click', () => {
+      state.send.template = approved[i];
+      state.send.templateVars = {};
+      renderTemplatePicker();
+      renderTemplateVarsForm();
+    });
+  });
+
+  if (state.send.template) renderTemplateVarsForm();
+}
+
+function templateBodyText(t) {
+  return t.components?.find((c) => c.type === 'BODY')?.text || '';
+}
+
+function templateVarNames(t) {
+  const body = templateBodyText(t);
+  return [...new Set((body.match(/{{\d+}}/g) || []))].sort();
+}
+
+function renderTemplateVarsForm() {
+  const wrap = document.getElementById('sendTemplateVarsWrap');
+  const varsEl = document.getElementById('sendTemplateVars');
+  const vars = templateVarNames(state.send.template);
+  if (!vars.length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  varsEl.innerHTML = vars.map((v, i) => `
+    <div class="var-row">
+      <span class="var-tag">${v}</span>
+      <input class="input" data-var-index="${i}" placeholder="Value for ${v}" value="${escapeHtml(state.send.templateVars[i] || '')}" />
+    </div>
+  `).join('');
+  varsEl.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', () => {
+      state.send.templateVars[input.dataset.varIndex] = input.value;
+      renderPreview();
+    });
+  });
+}
+
+function renderPreview() {
+  document.getElementById('previewRecipientCount').textContent = `${state.send.numbers.length} recipient${state.send.numbers.length === 1 ? '' : 's'}`;
+  let html = '';
+  const time = formatClock(Date.now());
+
+  if (state.send.type === 'template' && state.send.template) {
+    let text = templateBodyText(state.send.template);
+    const vars = templateVarNames(state.send.template);
+    vars.forEach((v, i) => {
+      text = text.replace(v, state.send.templateVars[i] || v);
+    });
+    const footer = state.send.template.components?.find((c) => c.type === 'FOOTER')?.text;
+    html = `<div class="phone-bubble mine">${escapeHtml(text)}${footer ? `<div style="opacity:.55;font-size:11px;margin-top:6px;">${escapeHtml(footer)}</div>` : ''}<div class="phone-bubble-time">${time}</div></div>`;
+  } else {
+    const mediaHtml = state.send.mediaUrl
+      ? (state.send.mediaMime?.startsWith('image/') ? `<img src="${state.send.mediaUrl}" />` : `<div style="padding:8px;background:#f2f2f2;border-radius:8px;font-size:11px;margin-bottom:6px;">📄 ${escapeHtml(state.send.mediaName || 'Document')}</div>`)
+      : '';
+    const caption = state.send.mediaUrl ? document.getElementById('sendMediaCaption').value : document.getElementById('composeText').value;
+    html = `<div class="phone-bubble mine">${mediaHtml}${escapeHtml(caption || (state.send.mediaUrl ? '' : 'Aapka message yahan dikhega...'))}<div class="phone-bubble-time">${time}</div></div>`;
+  }
+  document.getElementById('previewBubble').innerHTML = html;
+}
+
+function validateStep() {
+  const step = state.send.step;
+  if (step === 1) {
+    if (!state.send.numbers.length) { toast('Kam se kam ek valid number do', 'error'); return false; }
+    return true;
+  }
+  if (step === 2) {
+    if (!state.send.type) { toast('Message type chuno', 'error'); return false; }
+    return true;
+  }
+  if (step === '3-text') {
+    if (!state.send.mediaUrl && !document.getElementById('composeText').value.trim()) {
+      toast('Message likho ya file attach karo', 'error'); return false;
+    }
+    return true;
+  }
+  if (step === '3-template') {
+    if (!state.send.template) { toast('Template chuno', 'error'); return false; }
+    return true;
+  }
+  return true;
+}
+
+function nextStepKey(dir) {
+  const steps = currentSteps();
+  const idx = steps.findIndex((s) => String(s.key) === String(state.send.step));
+  const targetIdx = idx + dir;
+  if (targetIdx < 0) return null;
+  if (targetIdx >= steps.length) return 4;
+  return steps[targetIdx].key;
+}
+
+document.getElementById('wizardBackBtn').addEventListener('click', () => {
+  const prev = nextStepKey(-1);
+  if (prev !== null) { state.send.step = prev; renderWizard(); }
+});
+
+document.getElementById('wizardNextBtn').addEventListener('click', async () => {
+  if (state.send.step === 5) { resetWizard(); renderWizard(); return; }
+  if (state.send.step === 4) { await doSend(); return; }
+  if (!validateStep()) return;
+  const next = nextStepKey(1);
+  state.send.step = next;
+  renderWizard();
+});
+
+async function doSend() {
+  state.send.sending = true;
+  renderWizard();
+  const numbersText = state.send.numbers.join('\n');
+  let result;
+  try {
+    if (state.send.type === 'template') {
+      const vars = templateVarNames(state.send.template).map((v, i) => state.send.templateVars[i] || '');
+      result = await api('/api/send-template', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateName: state.send.template.name, language: state.send.template.language, variables: vars, numbersText }),
+      });
+    } else if (state.send.mediaUrl) {
+      result = await api('/api/send-media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaUrl: state.send.mediaUrl, mimetype: state.send.mediaMime, caption: document.getElementById('sendMediaCaption').value, filename: state.send.mediaName, numbersText }),
+      });
     } else {
-      showResult(resultEl, false, `${data.sentTo || 0} bheje gaye, kuch fail hue:\n${formatFailedList(data.failed)}`);
+      result = await api('/api/send-text', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: document.getElementById('composeText').value, numbersText }),
+      });
     }
   } catch (err) {
-    showResult(resultEl, false, `Error: ${err.message}`);
-  } finally {
-    setFormBusy(form, false);
-  }
-});
-
-document.getElementById('textForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const resultEl = document.getElementById('textResult');
-  const fd = new FormData(form);
-  const { valid: recipients } = parseNumbersClient(fd.get('numbersText'));
-
-  if (recipients.length === 0) {
-    showResult(resultEl, false, 'Kam se kam ek valid phone number do.');
-    return;
-  }
-  if (!confirm(`${recipients.length} number(s) ko message bheja jaayega. Confirm karein?`)) {
-    return;
+    result = { ok: false, error: err.message };
   }
 
-  setFormBusy(form, true);
-  showResult(resultEl, true, 'Bhej raha hoon...');
+  state.send.sending = false;
+  state.send.step = 5;
+  renderWizard();
 
-  const payload = {
-    message: fd.get('message'),
-    numbersText: recipients.join('\n'),
+  const area = document.getElementById('sendResultArea');
+  if (result.error && !result.results) {
+    area.innerHTML = `<div class="result-line fail">✕ ${escapeHtml(result.error)}</div>`;
+  } else {
+    const lines = (result.results || []).map((r) => `
+      <div class="result-line ${r.ok ? 'ok' : 'fail'}">
+        ${r.ok ? '✓' : '✕'} ${escapeHtml(displayNumber(r.to))} ${r.ok ? '' : '— ' + escapeHtml(r.data?.error?.message || r.error || 'failed')}
+      </div>
+    `).join('');
+    area.innerHTML = `<div class="result-summary"><strong>${result.sentTo || 0} / ${(result.results || []).length} bheje gaye</strong></div>${lines}`;
+  }
+  toast(result.ok ? 'Message sent!' : 'Kuch numbers pe fail hua', result.ok ? 'success' : 'error');
+  loadAll(false);
+}
+
+/* ============================================================
+   Templates view
+   ============================================================ */
+function renderTemplatesView() {
+  const grid = document.getElementById('templatesGrid');
+  const statusBadge = (s) => {
+    if (s === 'APPROVED') return '<span class="badge badge-green">Approved</span>';
+    if (s === 'PENDING') return '<span class="badge badge-amber">Pending</span>';
+    if (s === 'REJECTED') return '<span class="badge badge-red">Rejected</span>';
+    return `<span class="badge badge-gray">${escapeHtml(s || '')}</span>`;
   };
+  const cards = state.templates.map((t) => `
+    <div class="template-card">
+      <div class="template-card-head"><strong>${escapeHtml(t.name)}</strong></div>
+      <div class="template-card-meta">${statusBadge(t.status)}<span class="badge badge-gray">${escapeHtml(t.category || '')}</span><span class="badge badge-gray">${escapeHtml(t.language || '')}</span></div>
+      <div class="template-card-preview">${escapeHtml(templateBodyText(t))}</div>
+      <button class="btn btn-secondary btn-sm" data-use-tpl="${escapeHtml(t.name)}" ${t.status !== 'APPROVED' ? 'disabled' : ''}>Use this template</button>
+    </div>
+  `).join('');
 
-  try {
-    const res = await fetch('/api/send-text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+  grid.innerHTML = cards + `
+    <div class="create-template-card" id="createTemplateCard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <strong>New Template</strong>
+      <span style="font-size:11px;">Meta approval me kuch time lagta hai</span>
+    </div>
+  `;
+
+  if (!state.templates.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">${ICONS.doc}<strong>Koi template nahi mila</strong><span>Naya template banao neeche</span></div>` + grid.innerHTML;
+  }
+
+  document.getElementById('createTemplateCard').addEventListener('click', openTemplateForm);
+  grid.querySelectorAll('[data-use-tpl]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tpl = state.templates.find((t) => t.name === btn.dataset.useTpl);
+      resetWizard();
+      state.send.type = 'template';
+      state.send.template = tpl;
+      goToView('send');
+      document.querySelector('.choice-card[data-type="template"]').classList.add('selected');
+      state.send.step = '3-template';
+      renderWizard();
     });
-    const data = await res.json();
-    if (data.ok) {
-      showResult(resultEl, true, `✓ Bheja gaya ${data.sentTo} number(s) ko.`);
-    } else {
-      showResult(resultEl, false, `${data.sentTo || 0} bheje gaye, kuch fail hue:\n${formatFailedList(data.failed)}`);
-    }
-  } catch (err) {
-    showResult(resultEl, false, `Error: ${err.message}`);
-  } finally {
-    setFormBusy(form, false);
-  }
-});
-
-document.getElementById('mediaForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const resultEl = document.getElementById('mediaResult');
-  const fd = new FormData(form);
-  const { valid: recipients } = parseNumbersClient(fd.get('numbersText'));
-
-  if (!fd.get('mediaUrl')) {
-    showResult(resultEl, false, 'File upload karo ya Media URL do.');
-    return;
-  }
-  if (recipients.length === 0) {
-    showResult(resultEl, false, 'Kam se kam ek valid phone number do.');
-    return;
-  }
-  if (!confirm(`${recipients.length} number(s) ko media message bheja jaayega. Confirm karein?`)) {
-    return;
-  }
-
-  setFormBusy(form, true);
-  showResult(resultEl, true, 'Bhej raha hoon...');
-
-  const payload = {
-    mediaUrl: fd.get('mediaUrl'),
-    mediaType: fd.get('mediaType'),
-    mimetype: uploadedMediaMime,
-    caption: fd.get('caption'),
-    filename: mediaFileInput && mediaFileInput.files[0] ? mediaFileInput.files[0].name : '',
-    numbersText: recipients.join('\n'),
-  };
-
-  try {
-    const res = await fetch('/api/send-media', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showResult(resultEl, true, `✓ Bheja gaya ${data.sentTo} number(s) ko.`);
-    } else {
-      showResult(resultEl, false, `Error: ${data.error || ''}\n${formatFailedList(data.failed)}`);
-    }
-  } catch (err) {
-    showResult(resultEl, false, `Error: ${err.message}`);
-  } finally {
-    setFormBusy(form, false);
-  }
-});
-
-// Clear buttons: reset the form and all derived UI state (counters, feedback, results).
-document.querySelectorAll('[data-reset]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const form = document.getElementById(btn.dataset.reset);
-    if (!form) return;
-    form.reset();
-    form.querySelectorAll('.recipient-info').forEach((el) => updateRecipientInfo(form.querySelector('textarea[name="numbersText"]'), el));
-    form.querySelectorAll('.csv-feedback').forEach((el) => { el.textContent = ''; });
-    const resultEl = document.getElementById(`${form.id.replace('Form', '')}Result`);
-    if (resultEl) { resultEl.textContent = ''; resultEl.className = 'result'; }
-    if (form.id === 'mediaForm') {
-      uploadedMediaMime = '';
-      if (mediaUrlInput) mediaUrlInput.readOnly = false;
-      if (clearMediaBtn) clearMediaBtn.hidden = true;
-    }
-    if (form.id === 'textForm' && charCountEl) charCountEl.textContent = '0 / 4096 characters';
   });
-});
+}
+
+document.getElementById('newTemplateBtn').addEventListener('click', openTemplateForm);
+
+function openTemplateForm() {
+  const existing = document.getElementById('templateFormOverlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'templateFormOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,12,15,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:460px;width:100%;max-height:88vh;overflow-y:auto;">
+      <div class="card-pad">
+        <div class="section-heading"><div><h2>New Template</h2><p>Meta review karega, usually minutes-hours lagte hain</p></div></div>
+        <div class="field"><label>Template name</label><input class="input" id="tplName" placeholder="e.g. order_update" /><span class="field-hint">Sirf lowercase letters, numbers, underscore</span></div>
+        <div class="field"><label>Category</label>
+          <select class="input" id="tplCategory">
+            <option value="MARKETING">Marketing</option>
+            <option value="UTILITY">Utility</option>
+          </select>
+        </div>
+        <div class="field"><label>Language</label>
+          <select class="input" id="tplLanguage">
+            <option value="en_US">English (US)</option>
+            <option value="en">English</option>
+            <option value="hi">Hindi</option>
+          </select>
+        </div>
+        <div class="field"><label>Body</label><textarea class="input" id="tplBody" rows="5" placeholder="Hi {{1}}, ..."></textarea><span class="field-hint">Variables ke liye {{1}}, {{2}} use karo</span></div>
+        <div class="field"><label>Footer (optional)</label><input class="input" id="tplFooter" placeholder="Leela Infra Solution" /></div>
+        <div id="tplFormError"></div>
+        <div class="wizard-actions" style="border:none;padding-top:6px;margin-top:6px;">
+          <button class="btn btn-ghost" id="tplCancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="tplSubmitBtn">Create Template</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('tplCancelBtn').addEventListener('click', () => overlay.remove());
+  document.getElementById('tplSubmitBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('tplSubmitBtn');
+    const payload = {
+      name: document.getElementById('tplName').value.trim(),
+      category: document.getElementById('tplCategory').value,
+      language: document.getElementById('tplLanguage').value,
+      body: document.getElementById('tplBody').value.trim(),
+      footer: document.getElementById('tplFooter').value.trim(),
+    };
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Creating...';
+    const res = await api('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (res.ok) {
+      overlay.remove();
+      toast('Template submitted for review!', 'success');
+      await loadAll(false);
+      renderTemplatesView();
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Create Template';
+      document.getElementById('tplFormError').innerHTML = `<div class="result-line fail">✕ ${escapeHtml(res.error)}</div>`;
+    }
+  });
+}
+
+/* ============================================================
+   Inbox
+   ============================================================ */
+function renderConversationList(filter = '') {
+  const conversations = getConversations().filter((c) => {
+    if (!filter) return true;
+    const q = filter.toLowerCase();
+    return c.number.includes(q) || (c.name || '').toLowerCase().includes(q);
+  });
+  const listEl = document.getElementById('convList');
+  if (!conversations.length) {
+    listEl.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi conversation nahi</strong><span>Message bhejo ya customer reply ka wait karo</span></div>`;
+    return;
+  }
+  listEl.innerHTML = conversations.map((c) => `
+    <div class="conv-item ${state.activeConversation === c.number ? 'active' : ''}" data-number="${escapeHtml(c.number)}">
+      <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
+      <div class="conv-item-body">
+        <div class="conv-item-top">
+          <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
+          <span class="conv-item-time">${relativeTime(c.lastTimestamp)}</span>
+        </div>
+        <div class="conv-item-bottom">
+          <span>${c.lastMessage?.direction === 'sent' ? 'You: ' : ''}${escapeHtml(c.lastMessage?.body || '')}</span>
+          ${c.awaitingReply ? '<span class="unread-dot"></span>' : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.conv-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      state.activeConversation = item.dataset.number;
+      document.getElementById('appShell').classList.add('inbox-open');
+      renderConversationList(document.getElementById('convSearchInput').value);
+      renderThread(item.dataset.number);
+    });
+  });
+}
+
+document.getElementById('convSearchInput').addEventListener('input', (e) => renderConversationList(e.target.value));
+
+function tickIcon(m) {
+  if (m.direction !== 'sent') return '';
+  if (m.status === 'failed' || m.ok === false) return `<span class="bubble-ticks tick-failed">${ICONS.alert}</span>`;
+  if (m.status === 'read') return `<span class="bubble-ticks tick-read">${ICONS.doubleCheck}</span>`;
+  if (m.status === 'delivered') return `<span class="bubble-ticks tick-delivered">${ICONS.doubleCheck}</span>`;
+  return `<span class="bubble-ticks tick-sent">${ICONS.check}</span>`;
+}
+
+function bubbleMediaHtml(m) {
+  if (m.direction === 'sent' && m.mediaUrl) {
+    if (m.type === 'image') return `<img src="${m.mediaUrl}" alt="" />`;
+    if (m.type === 'video') return `<video src="${m.mediaUrl}" controls></video>`;
+    return `<a class="bubble-doc-link" href="${m.mediaUrl}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(m.body || 'Document')}</a>`;
+  }
+  if (m.direction === 'received' && m.mediaId) {
+    const src = `/api/media/${m.mediaId}`;
+    if (m.type === 'image' || m.type === 'sticker') return `<img src="${src}" alt="" />`;
+    if (m.type === 'video') return `<video src="${src}" controls></video>`;
+    if (m.type === 'audio') return `<audio src="${src}" controls style="width:100%;margin-bottom:6px;"></audio>`;
+    return `<a class="bubble-doc-link" href="${src}" target="_blank" rel="noopener">${ICONS.doc} ${escapeHtml(m.body || 'Document')}</a>`;
+  }
+  return '';
+}
+
+function renderThread(number) {
+  const conv = getConversations().find((c) => c.number === number);
+  document.getElementById('threadEmptyState').style.display = 'none';
+  const pane = document.getElementById('threadPane');
+
+  if (!document.getElementById('threadHeader')) {
+    pane.insertAdjacentHTML('afterbegin', `
+      <div class="thread-header" id="threadHeader">
+        <button class="icon-btn thread-back-btn" id="threadBackBtn">${ICONS.back}</button>
+        <div class="avatar avatar-sm" id="threadAvatar"></div>
+        <div class="thread-header-info"><strong id="threadName"></strong><span id="threadNumber"></span></div>
+      </div>
+      <div class="thread-body" id="threadBody"></div>
+      <div class="composer-session-note" id="composerNote" hidden></div>
+      <div class="composer">
+        <button class="composer-icon-btn" title="Attach" disabled>${ICONS.paperclip}</button>
+        <textarea id="threadComposerInput" rows="1" placeholder="Type a message..."></textarea>
+        <button class="composer-icon-btn" title="Emoji" disabled>${ICONS.smile}</button>
+        <button class="composer-send-btn" id="threadSendBtn">${ICONS.send}</button>
+      </div>
+    `);
+    document.getElementById('threadBackBtn').addEventListener('click', () => {
+      document.getElementById('appShell').classList.remove('inbox-open');
+    });
+    document.getElementById('threadSendBtn').addEventListener('click', sendThreadReply);
+    document.getElementById('threadComposerInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendThreadReply(); }
+    });
+  }
+
+  document.getElementById('threadAvatar').textContent = initials(conv?.name, number);
+  document.getElementById('threadName').textContent = conv?.name || displayNumber(number);
+  document.getElementById('threadNumber').textContent = displayNumber(number);
+
+  const sorted = [...(conv?.messages || [])].sort((a, b) => a.timestamp - b.timestamp);
+  let lastDay = null;
+  let html = '';
+  for (const m of sorted) {
+    const dayLabel = formatDayLabel(m.timestamp);
+    if (dayLabel !== lastDay) { html += `<div class="date-sep">${dayLabel}</div>`; lastDay = dayLabel; }
+    const failed = m.direction === 'sent' && (m.status === 'failed' || m.ok === false);
+    html += `
+      <div class="bubble-row ${m.direction}">
+        <div class="bubble ${m.direction} ${failed ? 'failed' : ''}">
+          ${bubbleMediaHtml(m)}
+          ${escapeHtml(m.body || '')}
+          <div class="bubble-meta"><span class="bubble-time">${formatClock(m.timestamp)}</span>${tickIcon(m)}</div>
+        </div>
+      </div>
+    `;
+  }
+  document.getElementById('threadBody').innerHTML = html;
+  document.getElementById('threadBody').scrollTop = document.getElementById('threadBody').scrollHeight;
+
+  const withinWindow = conv?.awaitingReply && Date.now() - (conv.lastTimestamp || 0) < 24 * 3600 * 1000;
+  document.getElementById('composerNote').hidden = withinWindow;
+  document.getElementById('composerNote').textContent = 'Ye number 24-hour session me nahi hai — sirf approved template hi bhej sakte ho (Send Message > Template).';
+
+  renderInfoPane(conv);
+}
+
+async function sendThreadReply() {
+  const input = document.getElementById('threadComposerInput');
+  const text = input.value.trim();
+  if (!text || !state.activeConversation) return;
+  input.value = '';
+  const res = await api('/api/send-text', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: text, numbersText: state.activeConversation }),
+  });
+  if (!res.ok && res.error) toast(res.error, 'error');
+  else if (res.failed?.length) toast(res.failed[0].data?.error?.message || 'Message fail hua', 'error');
+  await loadAll(false);
+  renderThread(state.activeConversation);
+}
+
+function renderInfoPane(conv) {
+  const pane = document.getElementById('infoPane');
+  if (!conv) { pane.hidden = true; return; }
+  pane.hidden = window.innerWidth < 1024;
+  const sentCount = conv.messages.filter((m) => m.direction === 'sent').length;
+  const recvCount = conv.messages.filter((m) => m.direction === 'received').length;
+  pane.innerHTML = `
+    <div class="info-pane-center">
+      <div class="avatar avatar-lg">${escapeHtml(initials(conv.name, conv.number))}</div>
+      <strong>${escapeHtml(conv.name || displayNumber(conv.number))}</strong>
+      <span>${escapeHtml(displayNumber(conv.number))}</span>
+    </div>
+    <div class="info-stat-row"><span>Messages sent</span><span>${sentCount}</span></div>
+    <div class="info-stat-row"><span>Replies received</span><span>${recvCount}</span></div>
+    <div class="info-stat-row"><span>Last activity</span><span>${relativeTime(conv.lastTimestamp)} ago</span></div>
+    <a class="btn btn-secondary btn-block" style="margin-top:16px;" href="https://wa.me/${conv.number}" target="_blank" rel="noopener">Open in WhatsApp</a>
+  `;
+}
+
+/* ============================================================
+   Contacts
+   ============================================================ */
+function renderContacts() {
+  const conversations = getConversations();
+  const table = document.getElementById('contactsTable');
+  if (!conversations.length) {
+    table.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi contact nahi</strong><span>Jaise hi aap message bhejoge ya customer reply karega, yahan dikhega</span></div>`;
+    return;
+  }
+  table.innerHTML = conversations.map((c) => {
+    const sentCount = c.messages.filter((m) => m.direction === 'sent').length;
+    const recvCount = c.messages.filter((m) => m.direction === 'received').length;
+    return `
+      <div class="contact-row">
+        <div class="avatar avatar-sm">${escapeHtml(initials(c.name, c.number))}</div>
+        <div class="contact-row-info">
+          <strong>${escapeHtml(c.name || displayNumber(c.number))}</strong>
+          <span>${escapeHtml(displayNumber(c.number))}</span>
+        </div>
+        <div class="contact-row-meta">
+          <strong>${sentCount} sent · ${recvCount} received</strong>
+          <span>Last: ${relativeTime(c.lastTimestamp)} ago</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* ============================================================
+   Settings
+   ============================================================ */
+function renderSettings() {
+  const cfg = state.config;
+  if (!cfg) return;
+  document.getElementById('settingsPhone').textContent = cfg.phoneNumberId ? '+91 86521 67829' : 'Not connected';
+  document.getElementById('settingsWabaId').textContent = cfg.wabaId || '—';
+  document.getElementById('connNumberText').textContent = cfg.phoneNumberId ? '+91 86521 67829' : 'Disconnected';
+}
+
+/* ============================================================
+   Boot
+   ============================================================ */
+goToView('dashboard');
