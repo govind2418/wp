@@ -100,6 +100,7 @@ const state = {
   config: null,
   currentView: 'dashboard',
   activeConversation: null,
+  inboxFilter: 'all', // 'all' | 'open' (free 24-hour window open)
   send: {
     step: 1,
     numbers: [],
@@ -200,29 +201,45 @@ loadAll(false);
 /* ============================================================
    Conversation helpers (shared by Dashboard / Inbox / Contacts)
    ============================================================ */
+const WINDOW_MS = 24 * 3600 * 1000;
+
 function getConversations() {
   const byNumber = new Map();
   // messages come newest-first
   for (const m of state.messages) {
     if (!byNumber.has(m.number)) {
-      byNumber.set(m.number, { number: m.number, name: '', messages: [], lastTimestamp: 0 });
+      byNumber.set(m.number, { number: m.number, name: '', messages: [], lastTimestamp: 0, lastReceivedTimestamp: 0 });
     }
     const conv = byNumber.get(m.number);
     conv.messages.push(m);
     if (m.direction === 'received' && m.name && !conv.name) conv.name = m.name;
     if (m.timestamp > conv.lastTimestamp) conv.lastTimestamp = m.timestamp;
+    if (m.direction === 'received' && m.timestamp > conv.lastReceivedTimestamp) conv.lastReceivedTimestamp = m.timestamp;
   }
   const list = [...byNumber.values()].map((c) => {
     const sorted = [...c.messages].sort((a, b) => b.timestamp - a.timestamp);
     const last = sorted[0];
+    const windowExpiresAt = c.lastReceivedTimestamp > 0 ? c.lastReceivedTimestamp + WINDOW_MS : null;
     return {
       ...c,
       lastMessage: last,
       awaitingReply: last?.direction === 'received',
+      windowExpiresAt,
+      windowOpen: windowExpiresAt !== null && windowExpiresAt > Date.now(),
     };
   });
   list.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
   return list;
+}
+
+// e.g. "3h 20m left" — null once the free window has closed.
+function formatWindowRemaining(expiresAt) {
+  if (!expiresAt) return null;
+  const msLeft = expiresAt - Date.now();
+  if (msLeft <= 0) return null;
+  const hrs = Math.floor(msLeft / 3600000);
+  const mins = Math.floor((msLeft % 3600000) / 60000);
+  return hrs > 0 ? `${hrs}h ${mins}m left` : `${mins}m left`;
 }
 
 /* ============================================================
@@ -725,14 +742,19 @@ function openTemplateForm() {
    Inbox
    ============================================================ */
 function renderConversationList(filter = '') {
-  const conversations = getConversations().filter((c) => {
+  let conversations = getConversations().filter((c) => {
     if (!filter) return true;
     const q = filter.toLowerCase();
     return c.number.includes(q) || (c.name || '').toLowerCase().includes(q);
   });
+  if (state.inboxFilter === 'open') conversations = conversations.filter((c) => c.windowOpen);
+
   const listEl = document.getElementById('convList');
   if (!conversations.length) {
-    listEl.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>Koi conversation nahi</strong><span>Message bhejo ya customer reply ka wait karo</span></div>`;
+    const msg = state.inboxFilter === 'open'
+      ? { title: 'Koi free window open nahi', body: 'Jab customer message karega, 24 ghante ka free window yahan dikhega' }
+      : { title: 'Koi conversation nahi', body: 'Message bhejo ya customer reply ka wait karo' };
+    listEl.innerHTML = `<div class="empty-state">${ICONS.inbox}<strong>${msg.title}</strong><span>${msg.body}</span></div>`;
     return;
   }
   listEl.innerHTML = conversations.map((c) => `
@@ -745,7 +767,7 @@ function renderConversationList(filter = '') {
         </div>
         <div class="conv-item-bottom">
           <span>${c.lastMessage?.direction === 'sent' ? 'You: ' : ''}${escapeHtml(c.lastMessage?.body || '')}</span>
-          ${c.awaitingReply ? '<span class="unread-dot"></span>' : ''}
+          ${c.windowOpen ? `<span class="window-badge"><span class="filter-dot"></span>${formatWindowRemaining(c.windowExpiresAt)}</span>` : c.awaitingReply ? '<span class="unread-dot"></span>' : ''}
         </div>
       </div>
     </div>
@@ -762,6 +784,14 @@ function renderConversationList(filter = '') {
 }
 
 document.getElementById('convSearchInput').addEventListener('input', (e) => renderConversationList(e.target.value));
+
+document.querySelectorAll('.conv-filter-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    state.inboxFilter = tab.dataset.inboxFilter;
+    document.querySelectorAll('.conv-filter-tab').forEach((t) => t.classList.toggle('active', t === tab));
+    renderConversationList(document.getElementById('convSearchInput').value);
+  });
+});
 
 function tickIcon(m) {
   if (m.direction !== 'sent') return '';
@@ -841,9 +871,8 @@ function renderThread(number) {
   document.getElementById('threadBody').innerHTML = html;
   document.getElementById('threadBody').scrollTop = document.getElementById('threadBody').scrollHeight;
 
-  const withinWindow = conv?.awaitingReply && Date.now() - (conv.lastTimestamp || 0) < 24 * 3600 * 1000;
-  document.getElementById('composerNote').hidden = withinWindow;
-  document.getElementById('composerNote').textContent = 'Ye number 24-hour session me nahi hai — sirf approved template hi bhej sakte ho (Send Message > Template).';
+  document.getElementById('composerNote').hidden = !!conv?.windowOpen;
+  document.getElementById('composerNote').textContent = 'Ye number 24-hour free window me nahi hai — sirf approved template hi bhej sakte ho (Send Message > Template).';
 
   renderInfoPane(conv);
 }
