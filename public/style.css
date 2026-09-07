@@ -1286,12 +1286,16 @@ a { color: inherit; }
   .thread-back-btn { display: flex; }
   .bubble { max-width: 82%; }
 
-  /* Once a chat is open, the outer "Inbox" page title is redundant —
-     only the contact's own name (thread-header) needs to show at top. */
+  /* Once a chat is open, the outer "Inbox" page title and the bottom nav
+     are both redundant — only the contact's own header + composer need
+     to show. Bottom nav comes back once you're back at the chat list. */
   .app-shell.inbox-open .topbar { display: none; }
+  .app-shell.inbox-open ~ .bottom-nav { display: none; }
+  .app-shell.inbox-open .main-content { padding: 0; }
   .app-shell.inbox-open .inbox-layout {
-    height: calc(100vh - var(--bottomnav-h) - 8px);
-    height: calc(100dvh - var(--bottomnav-h) - 8px);
+    height: calc(100vh - 8px);
+    height: calc(100dvh - 8px);
+    border-radius: 0;
   }
 
   .wizard-progress { gap: 3px; }
