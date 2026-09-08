@@ -330,6 +330,13 @@ function getConversations() {
     if (m.timestamp > conv.lastTimestamp) conv.lastTimestamp = m.timestamp;
     if (m.direction === 'received' && m.timestamp > conv.lastReceivedTimestamp) conv.lastReceivedTimestamp = m.timestamp;
   }
+  // A number we've only ever sent to (never received a reply from) has no
+  // WhatsApp profile name in the message history — fall back to the saved
+  // CSV contact's name so the list isn't just a wall of phone numbers.
+  for (const c of state.contacts) {
+    const conv = byNumber.get(c.number);
+    if (conv && !conv.name && c.name) conv.name = c.name;
+  }
   const list = [...byNumber.values()].map((c) => {
     const sorted = [...c.messages].sort((a, b) => b.timestamp - a.timestamp);
     const last = sorted[0];
