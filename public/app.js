@@ -635,19 +635,53 @@ function renderTemplateVarsForm() {
   });
 }
 
+// Meta's template GET response only gives back an internal upload handle
+// for image/video/document headers, not a fetchable URL — so a live-fetched
+// header image can't be shown generically. Map known templates to the same
+// asset that was actually submitted as their header example.
+const TEMPLATE_HEADER_PREVIEW_IMAGES = {
+  leela_infra_wholesale_image: '/tpl-wholesale-image.jpg',
+};
+
+const BUTTON_ICONS = {
+  URL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  PHONE_NUMBER: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
+  QUICK_REPLY: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 17-5-5 5-5"/><path d="M4 12h11a4 4 0 0 1 4 4v1"/></svg>',
+};
+
 function renderPreview() {
   document.getElementById('previewRecipientCount').textContent = `${state.send.numbers.length} recipient${state.send.numbers.length === 1 ? '' : 's'}`;
   let html = '';
   const time = formatClock(Date.now());
 
   if (state.send.type === 'template' && state.send.template) {
-    let text = templateBodyText(state.send.template);
-    const vars = templateVarNames(state.send.template);
+    const tpl = state.send.template;
+    let text = templateBodyText(tpl);
+    const vars = templateVarNames(tpl);
     vars.forEach((v, i) => {
       text = text.replace(v, state.send.templateVars[i] || v);
     });
-    const footer = state.send.template.components?.find((c) => c.type === 'FOOTER')?.text;
-    html = `<div class="phone-bubble mine">${escapeHtml(text)}${footer ? `<div style="opacity:.55;font-size:11px;margin-top:6px;">${escapeHtml(footer)}</div>` : ''}<div class="phone-bubble-time">${time}</div></div>`;
+    const footer = tpl.components?.find((c) => c.type === 'FOOTER')?.text;
+    const header = tpl.components?.find((c) => c.type === 'HEADER');
+    const buttons = tpl.components?.find((c) => c.type === 'BUTTONS')?.buttons || [];
+
+    let headerHtml = '';
+    if (header?.format === 'IMAGE') {
+      const src = TEMPLATE_HEADER_PREVIEW_IMAGES[tpl.name];
+      headerHtml = src ? `<img src="${src}" />` : `<div class="phone-bubble-header-placeholder">📷 Image header</div>`;
+    } else if (header?.format === 'VIDEO') {
+      headerHtml = `<div class="phone-bubble-header-placeholder">🎥 Video header</div>`;
+    } else if (header?.format === 'DOCUMENT') {
+      headerHtml = `<div class="phone-bubble-header-placeholder">📄 Document header</div>`;
+    } else if (header?.format === 'TEXT') {
+      headerHtml = `<div style="font-weight:700;margin-bottom:4px;">${escapeHtml(header.text || '')}</div>`;
+    }
+
+    const buttonsHtml = buttons.length
+      ? `<div class="phone-bubble-buttons">${buttons.map((b) => `<div class="phone-bubble-btn">${BUTTON_ICONS[b.type] || ''}${escapeHtml(b.text)}</div>`).join('')}</div>`
+      : '';
+
+    html = `<div class="phone-bubble mine">${headerHtml}${escapeHtml(text)}${footer ? `<div style="opacity:.55;font-size:11px;margin-top:6px;">${escapeHtml(footer)}</div>` : ''}<div class="phone-bubble-time">${time}</div></div>${buttonsHtml}`;
   } else {
     const mediaHtml = state.send.mediaUrl
       ? (state.send.mediaMime?.startsWith('image/') ? `<img src="${state.send.mediaUrl}" />` : `<div style="padding:8px;background:#f2f2f2;border-radius:8px;font-size:11px;margin-bottom:6px;">📄 ${escapeHtml(state.send.mediaName || 'Document')}</div>`)

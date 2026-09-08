@@ -775,6 +775,20 @@ a { color: inherit; }
 .phone-bubble.mine { background: #d5fdd0; margin-left: auto; border-radius: 12px 12px 3px 12px; }
 .phone-bubble img, .phone-bubble video { border-radius: 8px; margin-bottom: 6px; max-height: 160px; object-fit: cover; width: 100%; }
 .phone-bubble-time { font-size: 9.5px; color: rgba(16,21,26,0.45); text-align: right; margin-top: 3px; }
+.phone-bubble-header-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  height: 90px; border-radius: 8px; margin-bottom: 6px;
+  background: rgba(0,0,0,0.06); font-size: 11px; color: rgba(16,21,26,0.5);
+}
+.phone-bubble-buttons { max-width: 88%; margin-left: auto; margin-top: 1px; }
+.phone-bubble-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: white; border-radius: 8px;
+  padding: 8px 10px; margin-top: 1px;
+  font-size: 12px; font-weight: 600; color: #00a5f4;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+}
+.phone-bubble-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 
 .result-summary { margin-top: 16px; }
 .result-line {
