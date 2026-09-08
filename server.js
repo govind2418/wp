@@ -306,6 +306,16 @@ async function sendToMany(numbers, buildBody) {
   return { ok: failed.length === 0, sentTo: results.length - failed.length, failed, results };
 }
 
+// Templates whose approved HEADER is an image need that same image
+// supplied again as a send-time parameter — Meta rejects the send
+// ("Parameter format does not match format in the created template")
+// if a template with a media header gets no header component at all.
+// The header photo is fixed/branded content for these, not a per-send
+// variable, so it's safe to always attach the same one automatically.
+const TEMPLATE_HEADER_MEDIA = {
+  leela_infra_wholesale_image: { type: 'image', link: 'https://ab28coadxxhzydob.public.blob.vercel-storage.com/template-headers/leela_infra_wholesale_image.jpg' },
+};
+
 // Send an approved WhatsApp template message — works for cold/new numbers too.
 app.post('/api/send-template', async (req, res) => {
   if (requireCredentials(res)) return;
@@ -324,6 +334,11 @@ app.post('/api/send-template', async (req, res) => {
   const components = cleanVariables.length
     ? [{ type: 'body', parameters: cleanVariables.map((v) => ({ type: 'text', text: String(v) })) }]
     : [];
+
+  const headerMedia = TEMPLATE_HEADER_MEDIA[templateName];
+  if (headerMedia) {
+    components.unshift({ type: 'header', parameters: [{ type: headerMedia.type, [headerMedia.type]: { link: headerMedia.link } }] });
+  }
 
   const result = await sendToMany(numbers, (to) => ({
     messaging_product: 'whatsapp',
